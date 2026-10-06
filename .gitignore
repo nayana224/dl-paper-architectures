@@ -4,6 +4,7 @@ __pycache__/
 *.pyc
 study/data/
 study/outputs/
+checkpoints/
 .ipynb_checkpoints/
 
 # 로컬 에디터 설정 및 인덱스 캐시
