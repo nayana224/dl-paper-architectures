@@ -5,3 +5,6 @@ __pycache__/
 study/data/
 study/outputs/
 .ipynb_checkpoints/
+
+# 로컬 에디터 설정 및 인덱스 캐시
+.vscode/

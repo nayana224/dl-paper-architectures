@@ -1,0 +1,7 @@
+filename,dataset_index,pet_label,breed
+pet_00.jpg,0,0,Abyssinian
+pet_05.jpg,250,5,Bengal
+pet_10.jpg,499,10,Chihuahua
+pet_15.jpg,746,15,Great Pyrenees
+pet_20.jpg,996,20,Maine Coon
+pet_25.jpg,1246,25,Pug
