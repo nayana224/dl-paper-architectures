@@ -1,6 +1,6 @@
 # ViT PyTorch Study
 
-논문 **An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale**를 이해하기 위한 개인 구현·실습 저장소입니다. Google의 JAX 구현을 참고 자료로 삼되, 실험하기 쉬운 PyTorch를 사용합니다. Pretrained 실험은 torchvision과 Hugging Face Transformers를 사용합니다. 학습 프레임워크나 논문 결과 재현 프로젝트는 아닙니다.
+논문 **An Image is Worth 16x16 Words: Transformers for Image Recognition at Scale**를 이해하기 위한 개인 구현·실습 저장소입니다. Google의 JAX 구현을 참고 자료로 삼되, 실험하기 쉬운 PyTorch를 사용합니다. Pretrained 실험은 torchvision과 Hugging Face Transformers를 사용합니다. 학습 프레임워크나 논문 전체 결과 재현 프로젝트는 아닙니다.
 
 ## 공부 체크리스트
 
@@ -20,12 +20,15 @@
 | `study/02_patch_embedding.py` | 픽셀 벡터 768차원을 `nn.Linear`로 교육용 D=128에 투영합니다. raw patch dimension과 hidden size의 차이를 확인합니다. |
 | `study/03_cls_position.py` | 학습 가능한 CLS token과 Position Embedding을 추가합니다. 196개 패치 토큰이 197개로 바뀝니다. |
 | `study/04_encoder_forward.py` | D=128, head=4인 단일 Pre-LN Encoder를 통과합니다. residual 연결과 head별 attention shape를 확인합니다. |
-| `study/05_pretrained_inference.py` | torchvision ViT-B/16으로 모든 표본의 ImageNet Top-5 예측을 출력합니다. Pet 정답과 ImageNet 예측은 서로 다른 label space입니다. |
-| `study/06_attention_visualization.py` | torchvision의 head 평균 attention에 residual을 더하고 행 정규화한 뒤 layer 순서대로 누적합니다. 실제 입력 crop, CLS rollout 그리드, 확대 맵, overlay를 저장합니다. |
-| `study/07_huggingface_vit_gpu.py` | `google/vit-base-patch16-224`를 CUDA 또는 CPU에서 실행합니다. 설정·예측·모든 Hidden State와 Attention shape를 확인합니다. |
-| `study/08_attention_inspection.py` | 하나의 layer/head에서 CLS query의 attention을 수치로 확인합니다. CLS→CLS, CLS→patch, Top-10 patch, 행의 합, heatmap과 overlay를 확인합니다. |
+| `study/05_pretrained_inference.py` | torchvision ViT-B/16으로 Pet 이미지를 **ImageNet label space**에서 Top-5 추론합니다. 아직 Pet fine-tuning은 하지 않습니다. |
+| `study/06_attention_visualization.py` | torchvision의 head 평균 attention에 residual을 더하고 layer별로 누적한 Attention Rollout을 시각화합니다. |
+| `study/07_huggingface_vit_gpu.py` | `google/vit-base-patch16-224`를 GPU에서 실행하고 ViT-B/16의 설정, Hidden State, Attention shape를 확인합니다. |
+| `study/08_attention_inspection.py` | 하나의 layer/head에서 CLS query의 raw attention을 직접 수치와 heatmap으로 확인합니다. |
+| `study/09_finetuned_pet_inference.py` | 이미 Oxford-IIIT Pet으로 fine-tuning된 공개 ViT checkpoint를 불러와 **37개 Pet class**에서 추론합니다. |
+| `study/10_finetune_oxford_pet.py` | ImageNet-21k pretrained ViT-B/16을 불러와 Oxford-IIIT Pet으로 직접 full fine-tuning하고 checkpoint를 저장합니다. |
+| `study/11_compare_pretrained_finetuned.py` | 같은 이미지를 ImageNet pretrained 모델과 Pet fine-tuned 모델에 넣어 label space와 prediction의 차이를 비교합니다. |
 
-00~08은 각각 실행 가능한 스크립트이며, 00에서 만든 assets 외에는 앞 단계의 실행 결과에 의존하지 않습니다. 01~04의 파라미터는 무작위 초기화 상태로 학습하지 않습니다.
+01~04는 구조를 이해하기 위한 무작위 초기화 실습입니다. 05~09는 pretrained/fine-tuned 모델의 추론 및 내부 관찰이고, 10에서 처음으로 실제 downstream fine-tuning을 수행합니다.
 
 ## 핵심 Tensor 흐름
 
@@ -45,11 +48,91 @@ Image [B,3,224,224]
 
 ViT-B/16 설정: Patch size **16×16**, Hidden size D **768**, Layers **12**, Heads **12**, MLP dim **3072**. 패치 픽셀 차원 `P²C=768`과 hidden size `D=768`은 수치가 같아도 서로 다른 개념입니다.
 
-Hugging Face 예제의 입력은 `[1,3,224,224]`, Hidden State는 `[1,197,768]`, Attention은 `[1,12,197,197]`입니다. Hidden State는 embedding 출력과 12개 layer 출력을 합쳐 13개, Attention은 12개입니다. Attention의 마지막 두 축은 query와 key이며 각 query 행은 softmax로 정규화됩니다.
+Hugging Face 예제의 입력은 `[1,3,224,224]`, Hidden State는 `[1,197,768]`, Attention은 `[1,12,197,197]`입니다. Hidden State는 embedding 출력과 12개 layer 출력을 합쳐 13개, Attention은 12개입니다.
+
+## Pre-training → Fine-tuning 흐름
+
+ViT 논문의 중요한 실험 전략을 이 저장소에서는 다음처럼 단순화해 체험합니다.
+
+```text
+[논문의 아이디어]
+
+대규모 데이터셋
+(ImageNet-21k / JFT-300M)
+        ↓
+ViT pre-training
+        ↓
+downstream task용 classification head
+        ↓
+Oxford-IIIT Pet 등에서 fine-tuning
+
+
+[이 저장소의 10번 실습]
+
+google/vit-base-patch16-224-in21k
+(ImageNet-21k pretrained ViT-B/16)
+        ↓
+37-class Oxford-IIIT Pet head
+        ↓
+Oxford-IIIT Pet train/validation
+        ↓
+CrossEntropyLoss + AdamW
+        ↓
+전체 ViT fine-tuning
+        ↓
+Oxford-IIIT Pet test
+        ↓
+checkpoints/vit-base-oxford-pet
+```
+
+### 05와 09의 차이
+
+```text
+05:
+Pet 이미지
+→ ImageNet 분류용 pretrained ViT
+→ 1000개 ImageNet label 중 하나 예측
+
+09:
+Pet 이미지
+→ Oxford-IIIT Pet으로 이미 fine-tuning된 ViT
+→ 37개 Pet 품종 중 하나 예측
+```
+
+09의 `schlenat/vit-base-oxford-iiit-pets`는 ViT 논문 저자들이 배포한 공식 Oxford-Pet checkpoint가 아니라, fine-tuned 모델의 결과를 먼저 체감하기 위한 공개 Hugging Face checkpoint입니다.
+
+10은 논문 전체 실험을 그대로 재현하는 것이 아니라, **대규모 pre-training → 작은 downstream dataset fine-tuning**이라는 핵심 transfer learning 흐름을 개인 GPU에서 직접 체험하는 실습입니다.
+
+## 10번 Fine-tuning의 Input / GT / Output / Loss
+
+```text
+Input
+[B,3,224,224]
+
+GT
+[B]
+각 값은 0~36의 Oxford-IIIT Pet class index
+
+ViT
+↓
+CLS representation [B,768]
+↓
+37-class classification head
+
+Output
+[B,37] logits
+
+Loss
+CrossEntropyLoss(logits, GT)
+
+Backpropagation
+↓
+pretrained ViT 전체 parameter + 새 head 업데이트
+```
 
 ## 실행 방법
 
-Ubuntu 22.04와 NVIDIA GPU를 목표로 하며 GPU가 없으면 CPU로 실행합니다. 환경에 맞는 Python 가상환경에서 실행하세요.
+Ubuntu 22.04와 NVIDIA GPU를 목표로 하며 GPU가 없으면 CPU로도 일부 실습을 실행할 수 있습니다.
 
 ```bash
 python3 -m venv .venv
@@ -66,15 +149,34 @@ python study/05_pretrained_inference.py
 python study/06_attention_visualization.py
 python study/07_huggingface_vit_gpu.py
 python study/08_attention_inspection.py
-# layer와 head는 0-based; 기본값은 마지막 layer, head 0
-python study/08_attention_inspection.py --layer 11 --head 3
+
+# 이미 fine-tuning된 Pet 모델의 결과를 먼저 확인
+python study/09_finetuned_pet_inference.py
+
+# 먼저 작은 sample로 fine-tuning pipeline이 정상 동작하는지 확인
+python study/10_finetune_oxford_pet.py \
+    --epochs 1 \
+    --batch-size 8 \
+    --max-train-samples 128 \
+    --max-test-samples 128
+
+# 문제가 없으면 전체 dataset으로 fine-tuning
+python study/10_finetune_oxford_pet.py \
+    --epochs 3 \
+    --batch-size 8
+
+# 직접 학습한 checkpoint가 있으면 자동으로 사용하고,
+# 없으면 공개 fine-tuned checkpoint를 사용
+python study/11_compare_pretrained_finetuned.py
 ```
 
-Ubuntu 22.04에서 새 가상환경의 pip가 22.0.2라면 의존성 설치 중 `AssertionError`가 발생할 수 있으므로 위의 pip 업데이트를 먼저 실행하세요. 설치가 실패했다면 실습 실행을 멈추고 pip 업데이트 후 `python -m pip install -r requirements.txt`를 다시 실행하세요. `ModuleNotFoundError: torch/torchvision`는 설치 실패의 후속 오류일 수 있습니다.
+GPU 메모리가 부족하면 `--batch-size 4` 또는 `--batch-size 2`로 낮추세요. 10은 GPU에서 mixed precision을 사용합니다.
 
-00은 전체 Oxford-IIIT Pet 데이터셋을 내려받으므로 네트워크와 저장 공간이 필요합니다. 05~08의 첫 실행은 pretrained 가중치를 다운로드합니다. Hugging Face와 torchvision 가중치는 각각 캐시되며 서로 다른 pretrained 모델이므로 예측·attention이 같다고 가정하지 않습니다.
+Ubuntu 22.04에서 새 가상환경의 pip가 오래된 버전이라면 의존성 설치 오류가 발생할 수 있으므로 먼저 `python -m pip install --upgrade pip`를 실행하세요.
 
-`study/assets/`의 선택된 이미지와 manifest는 버전 관리가 가능합니다. 전체 데이터셋 `study/data/`와 생성 이미지 `study/outputs/`는 git에서 제외됩니다. 스크립트의 경로는 파일 위치 기준이므로 실행 위치에 의존하지 않습니다.
+00은 Oxford-IIIT Pet 데이터셋을 내려받으므로 네트워크와 저장 공간이 필요합니다. pretrained/fine-tuned 모델의 첫 실행에서는 Hugging Face 또는 torchvision model weight를 다운로드합니다.
+
+`study/assets/`의 선택된 이미지와 manifest는 버전 관리할 수 있습니다. 전체 데이터셋 `study/data/`, 생성 이미지 `study/outputs/`, fine-tuned weight `checkpoints/`는 git에서 제외됩니다.
 
 GPU 확인:
 
@@ -88,21 +190,22 @@ if torch.cuda.is_available():
 PY
 ```
 
-GPU가 감지되지 않으면 설치된 NVIDIA 드라이버와 CUDA 환경에 맞는 PyTorch를 [공식 설치 안내](https://pytorch.org/get-started/locally/)에 따라 설치하세요. 특정 CUDA wheel 버전은 여기서 지정하지 않습니다. `torch`와 `torchvision`은 호환되는 조합으로 설치해야 합니다.
+GPU가 감지되지 않으면 설치된 NVIDIA 드라이버와 CUDA 환경에 맞는 PyTorch를 공식 설치 안내에 따라 설치하세요. 특정 CUDA wheel 버전은 저장소에서 고정하지 않습니다.
 
 ## Attention 해석
 
-**Single-head attention**은 “이 layer의 이 head에서 CLS query가 어떤 key token에 주목하는가?”를 보여줍니다. 08은 CLS→CLS를 포함한 전체 행의 합이 약 1인지 확인합니다. CLS→patch만 떼어내면 그 합은 1보다 작을 수 있으며, 그림에도 재정규화하지 않은 raw attention weight를 사용합니다.
+**Single-head attention**은 “이 layer의 이 head에서 CLS query가 어떤 key token에 주목하는가?”를 보여줍니다. 08은 CLS→CLS를 포함한 전체 행의 합이 약 1인지 확인합니다.
 
-**Attention Rollout**은 여러 head/layer에 걸친 attention 흐름을 누적한 값입니다. 06의 `Relative rollout score`는 클래스별 기여도나 인과적 설명을 의미하지 않습니다. 08도 인과적 설명이 아닙니다. 두 실습은 모델에 입력된 tensor를 역정규화한 이미지 위에 맵을 표시해 전처리 좌표를 맞춥니다.
+**Attention Rollout**은 여러 head/layer에 걸친 attention 흐름을 누적한 값입니다. 06의 `Relative rollout score`는 클래스별 기여도나 인과적 설명을 의미하지 않습니다. 08도 인과적 설명이 아닙니다.
 
-Hugging Face에서는 attention 행렬 반환을 위해 `attn_implementation="eager"`를 사용합니다. 빠른 attention backend에서는 attention이 반환되지 않을 수 있습니다. torchvision 실습은 forward hook으로 head별 weight 출력을 요청합니다.
+Hugging Face에서는 attention 행렬 반환을 위해 `attn_implementation="eager"`를 사용합니다. torchvision 실습은 forward hook으로 head별 weight 출력을 요청합니다.
 
 ## 참고 자료
 
 - [ViT 논문](https://arxiv.org/abs/2010.11929)
 - [Google Vision Transformer JAX 구현](https://github.com/google-research/vision_transformer)
-- [torchvision ViT-B/16 및 전처리](https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.vit_b_16.html)
-- [Hugging Face ViT 모델](https://huggingface.co/google/vit-base-patch16-224)
-- [Hugging Face Attention backend](https://huggingface.co/docs/transformers/attention_interface)
+- [Google ImageNet-21k pretrained ViT-B/16](https://huggingface.co/google/vit-base-patch16-224-in21k)
+- [Google ImageNet-1k classification ViT-B/16](https://huggingface.co/google/vit-base-patch16-224)
+- [공개 Oxford-IIIT Pet fine-tuned ViT](https://huggingface.co/schlenat/vit-base-oxford-iiit-pets)
+- [torchvision ViT-B/16](https://docs.pytorch.org/vision/stable/models/generated/torchvision.models.vit_b_16.html)
 - [공부 기록 템플릿](notes/vit_summary.md)
