@@ -54,7 +54,8 @@ Ubuntu 22.04와 NVIDIA GPU를 목표로 하며 GPU가 없으면 CPU로 실행합
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 
 python study/00_prepare_dataset.py
 python study/01_patchify.py
@@ -68,6 +69,8 @@ python study/08_attention_inspection.py
 # layer와 head는 0-based; 기본값은 마지막 layer, head 0
 python study/08_attention_inspection.py --layer 11 --head 3
 ```
+
+Ubuntu 22.04에서 새 가상환경의 pip가 22.0.2라면 의존성 설치 중 `AssertionError`가 발생할 수 있으므로 위의 pip 업데이트를 먼저 실행하세요. 설치가 실패했다면 실습 실행을 멈추고 pip 업데이트 후 `python -m pip install -r requirements.txt`를 다시 실행하세요. `ModuleNotFoundError: torch/torchvision`는 설치 실패의 후속 오류일 수 있습니다.
 
 00은 전체 Oxford-IIIT Pet 데이터셋을 내려받으므로 네트워크와 저장 공간이 필요합니다. 05~08의 첫 실행은 pretrained 가중치를 다운로드합니다. Hugging Face와 torchvision 가중치는 각각 캐시되며 서로 다른 pretrained 모델이므로 예측·attention이 같다고 가정하지 않습니다.
 
