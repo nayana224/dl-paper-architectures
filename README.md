@@ -13,10 +13,10 @@
 
 | 논문 | 핵심 주제 | 코드 | 상태 |
 | --- | --- | --- | --- |
-| ResNet | Residual Connection | `study/01_resnet.py` | 예정 |
-| U-Net | Skip Connection / Dense Prediction | `study/02_unet.py` | 예정 |
-| DeepLabV3+ | Atrous Convolution / Segmentation | `study/03_deeplabv3plus.py` | 예정 |
-| Attention Is All You Need | Self-Attention / Encoder–Decoder | `study/04_transformer.py` | 예정 |
+| ResNet | Residual Connection | [`study/01_resnet.py`](study/01_resnet.py) | 구현 |
+| U-Net | Skip Connection / Dense Prediction | [`study/02_unet.py`](study/02_unet.py) | 구현 |
+| DeepLabV3+ | Atrous Convolution / Segmentation | [`study/03_deeplabv3plus.py`](study/03_deeplabv3plus.py) | 구현 |
+| Attention Is All You Need | Self-Attention / Encoder–Decoder | [`study/04_transformer.py`](study/04_transformer.py) | 구현 |
 | Vision Transformer (ViT) | Patch, CLS, MHSA, Classification | [`study/05_vit.py`](study/05_vit.py) | 구현 |
 | DINOv2 | Self-supervised Visual Feature | `study/06_dinov2.py` | 선택 |
 | Segment Anything (SAM) | Promptable Segmentation | `study/07_sam.py` | 선택 |
@@ -25,6 +25,30 @@
 | Diffusion Policy | Conditional Action Generation | `study/10_diffusion_policy.py` | 예정 |
 
 **예정/선택 표시는 구현 완료를 뜻하지 않습니다.** 모든 논문에 같은 분량의 코드를 강제하지 않으며 DINOv2·SAM처럼 필요하면 공식 Demo만 검토하고 넘어갈 수 있습니다.
+
+## 01~04. ViT 이전 핵심 아키텍처
+
+각 파일은 이미지를 직접 그리거나 짧은 token ID를 사용하며, **하나의 Forward / Loss / Backward / Optimizer Step**을 보여주는 교육용 축소 구현입니다.
+
+| 논문 | 입력 및 GT | 코드에서 확인할 핵심 | 논문 원문 / 공식 코드 |
+| --- | --- | --- | --- |
+| 01 ResNet | 파란 사각형 RGB 이미지, 가상 class ID | F(x)+shortcut, Identity/Projection, Gradients | [Paper](https://arxiv.org/abs/1512.03385) / [Official](https://github.com/KaimingHe/deep-residual-networks) |
+| 02 U-Net | 원형 이미지, 픽셀 마스크 | Encoder–Decoder, Skip Concat, Pixel Cross-Entropy | [Paper](https://arxiv.org/abs/1505.04597) / [Official](https://lmb.informatik.uni-freiburg.de/people/ronneber/u-net/) |
+| 03 DeepLabV3+ | 사각형 이미지, 픽셀 마스크 | Dilated Convolution, ASPP, Low-level Decoder | [Paper](https://arxiv.org/abs/1802.02611) / [Official](https://github.com/tensorflow/models/tree/master/research/deeplab) |
+| 04 Transformer | 가상 Source/Target token ID | Sinusoidal Position, Encoder Self-Attention, Decoder Causal/Cross-Attention, Teacher Forcing | [Paper](https://arxiv.org/abs/1706.03762) / [Annotated Implementation](https://nlp.seas.harvard.edu/annotated-transformer/) |
+
+**원 논문과의 주요 차이:** U-Net은 valid convolution + crop을 same padding과 bilinear upsampling으로 단순화하고, DeepLabV3+는 Backbone과 Output Stride, Atrous Separable Convolution을 단순화했습니다. Transformer는 Layer 1개, D=32의 Post-LN Encoder–Decoder입니다. ResNet은 소형 BasicBlock 예시이며 논문 전체 ResNet-34/50을 구현하지 않았습니다.
+
+실행:
+
+```bash
+python study/01_resnet.py
+python study/02_unet.py
+python study/03_deeplabv3plus.py
+python study/04_transformer.py
+```
+
+각 스크립트는 임의 초기화 상태에서 **1 step만 학습**하므로 Accuracy/Segmentation 품질/번역 성능을 나타내지 않습니다.
 
 ## 05. Vision Transformer
 
