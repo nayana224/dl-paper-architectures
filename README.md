@@ -20,7 +20,7 @@ Backward
 Weight Update
 ```
 
-Pretrained 모델 없이 작은 ViT(D=128, heads=4, Encoder 1개, class 3개)를 직접 구현합니다. Ball 이미지를 메모리에서 그리고 가상 class `0=Bird, 1=Ball, 2=Car` 중 GT=1을 지정해 정확히 1 step 학습합니다. 모든 중간 shape, logits, softmax, loss, gradient와 weight 변경을 출력합니다. 분류 성능을 평가하는 실험은 아닙니다.
+Pretrained 모델 없이 작은 ViT(D=128, heads=4, Encoder 1개, class 3개)를 직접 구현합니다. Q/K/V 생성과 Scaled Dot-Product Attention을 명시적으로 계산합니다. Ball 이미지를 메모리에서 그리고 가상 class `0=Bird, 1=Ball, 2=Car` 중 GT=1을 지정해 정확히 1 step 학습합니다. 모든 중간 shape, logits, softmax, loss, gradient와 weight 변경을 출력합니다. 분류 성능을 평가하는 실험은 아닙니다.
 
 **02_pretrained_inference.py — “Pretrained ViT란 무엇인가?”**
 
@@ -51,6 +51,22 @@ Task-specific prediction
 같은 Pet 이미지 6장을 A: Google ImageNet 1,000-class 모델, B: Oxford-IIIT Pet 37-class 모델에 넣어 GT·Top-1을 비교합니다. 공개 `schlenat/vit-base-oxford-iiit-pets`는 A를 Pet 데이터셋으로 추가 fine-tuning한 **사용자 공개 모델이며 ViT 논문 저자의 공식 Oxford-Pet checkpoint가 아닙니다**. 이 파일도 추가 학습 없이 추론만 수행합니다. 각 모델의 processor를 사용합니다. [Pet 모델 카드](https://huggingface.co/schlenat/vit-base-oxford-iiit-pets)
 
 두 모델의 label space가 다르므로 점수를 그대로 비교하거나 ImageNet 예측을 Pet 품종 정답과 일대일 비교하지 않습니다. 표본은 Oxford-IIIT Pet trainval에서 골랐으며 공개 모델 학습 이미지와 겹칠 수 있습니다. 이 비교는 test accuracy 측정이 아닙니다.
+
+## 01 상세: Q/K/V와 시각화
+
+01에서는 `nn.MultiheadAttention` 대신 Q/K/V를 직접 계산합니다. 논문 수식 `softmax(QKᵀ / sqrt(d_k)) V`를 실제 tensor shape와 연결하기 위한 교육용 구현입니다.
+
+```text
+입력 token       [1,197,128]
+Q / K / V        [1,4,197,32]
+Attention score [1,4,197,197]
+Attention       [1,4,197,197]
+Attention @ V   [1,4,197,32]
+Head 결합       [1,197,128]
+CLS → logits    [1,3]
+```
+
+`python study/01_forward_backward.py`를 실행하면 `outputs/01_patch_grid.png`와 `outputs/01_attention_heatmap.png`가 생성됩니다. 첫 번째는 16×16 patch 분할, 두 번째는 첫 head의 CLS→patch **raw attention weight**를 보여줍니다. 무작위 초기화 상태의 attention이므로 의미적 영역이나 분류 근거로 해석하면 안 됩니다. 출력 그림은 Git에 포함하지 않습니다.
 
 ## 논문과 연결
 
