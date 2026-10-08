@@ -27,7 +27,7 @@ OUTPUT_DIR = Path(__file__).resolve().parents[1] / "outputs"
 
 
 class MultiHeadAttention(nn.Module):
-    """Q/K/V 생성 → scaled dot-product attention → head 연결을 직접 구현."""
+    """같은 입력에서 Q/K/V를 만들고 여러 head에서 Self-Attention을 계산한다."""
 
     def __init__(self):
         super().__init__()
@@ -38,25 +38,25 @@ class MultiHeadAttention(nn.Module):
     def forward(self, x):
         batch, tokens, _ = x.shape
 
-        # [B,N,3D] → [3,B,H,N,d_head] → Q,K,V 각각 [B,H,N,d_head].
+        # [B,N,3D] → [B,N,3,H,d_head] → 축 재정렬 후 Q,K,V 각각 [B,H,N,d_head].
         qkv = self.to_qkv(x)
         qkv = qkv.reshape(batch, tokens, 3, HEADS, HEAD_DIM)
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(0)
 
-        # 각 query가 모든 key와 얼마나 관련 있는지를 계산한다.
+        # 각 Query와 모든 Key의 내적을 sqrt(d_head)로 나눠 Attention Score를 만든다.
         scores = (q @ k.transpose(-2, -1)) * (HEAD_DIM ** -0.5)
         # key 축에 softmax: query 한 행의 attention 합은 1이 된다.
         weights = scores.softmax(dim=-1)
 
-        # Attention weight로 Value를 가중 합하고, 모든 head를 연결한다.
+        # Attention weight로 Value를 가중합한 뒤 Head들을 연결한다.
         context = weights @ v
+        print("Attention @ V (head별):", list(context.shape))
         context = context.transpose(1, 2).reshape(batch, tokens, DIM)
         out = self.to_out(context)
 
         print("Q/K/V 각각:", list(q.shape))
         print("Attention score:", list(scores.shape))
         print("Attention weights:", list(weights.shape))
-        print("Attention @ V:", list(context.shape))
         print("Head 연결 + Output projection:", list(out.shape))
         print("CLS attention row 합:", weights[0, 0, 0].sum().item())
 
@@ -102,7 +102,6 @@ class SmallViT(nn.Module):
             3, PATCH_SIZE, PATCH_SIZE
         )
         patches = patches.permute(0, 2, 3, 1, 4, 5)
-        patch_grid = patches.detach()  # 그림 저장용; 학습에는 영향을 주지 않는다.
         patches = patches.reshape(image.shape[0], GRID_SIZE**2, 3 * PATCH_SIZE**2)
         print("Patchify:", list(patches.shape))
 
@@ -121,15 +120,15 @@ class SmallViT(nn.Module):
         print("CLS representation:", list(cls.shape))
         logits = self.head(cls)
         print("Classification Head:", list(logits.shape))
-        return logits, patch_grid, attention_weights
+        return logits, attention_weights
 
 
-def save_visualizations(image_tensor, patch_grid, weights):
+def save_visualizations(image_tensor, weights):
     """원본 patch grid와 첫 head의 CLS→patch attention을 저장한다."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     image = image_tensor[0].detach().cpu().permute(1, 2, 0).numpy()
 
-    # Patch 196개를 14×14로 다시 배치해 경계를 눈으로 확인한다.
+    # 원본 이미지 위에 14×14 patch 경계를 그려 분할 위치를 확인한다.
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.imshow(image)
     ax.set_xticks(range(0, IMAGE_SIZE + 1, PATCH_SIZE))
@@ -187,8 +186,8 @@ def main():
     loss_fn = nn.CrossEntropyLoss()
 
     optimizer.zero_grad()
-    logits, patches, attention = model(inputs)  # Forward
-    save_visualizations(inputs, patches, attention)
+    logits, attention = model(inputs)  # Forward
+    save_visualizations(inputs, attention)
 
     print("logits:", logits.detach().cpu().tolist())  # 확률이 아닌 raw score
     probabilities = logits.detach().softmax(dim=-1)  # 출력 해석용
