@@ -26,7 +26,7 @@ HEAD_DIM = DIM // HEADS
 OUTPUT_DIR = Path(__file__).resolve().parents[1] / "outputs"
 
 
-class SelfAttention(nn.Module):
+class MultiHeadAttention(nn.Module):
     """Q/K/V 생성 → scaled dot-product attention → head 연결을 직접 구현."""
 
     def __init__(self):
@@ -67,7 +67,7 @@ class EncoderBlock(nn.Module):
     def __init__(self):
         super().__init__()
         self.norm1 = nn.LayerNorm(DIM)
-        self.attention = SelfAttention()
+        self.attention = MultiHeadAttention()
         self.norm2 = nn.LayerNorm(DIM)
         self.mlp = nn.Sequential(
             nn.Linear(DIM, DIM * 4),
@@ -117,7 +117,7 @@ class SmallViT(nn.Module):
 
         tokens, attention_weights = self.encoder(tokens)
         print("Transformer Encoder:", list(tokens.shape))
-        cls = self.norm(tokens[:, 0])
+        cls = self.norm(tokens[:, 0])  # 첫 번째 token인 CLS만 사용한다.
         print("CLS representation:", list(cls.shape))
         logits = self.head(cls)
         print("Classification Head:", list(logits.shape))
