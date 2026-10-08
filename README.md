@@ -9,6 +9,29 @@
 - 논문의 **전체 재현이나 공식 구현 대체가 아닙니다.** 공식 모델 실행, 대규모 학습, 벤치마크 재현은 논문별 공식 저장소 또는 별도 프로젝트에서 수행합니다.
 - 아직 학습하지 않은 논문은 파일을 미리 만들지 않습니다.
 
+## 개발 환경 자동 설정 (Ubuntu / Linux)
+
+컴퓨터마다 `.venv`는 로컬에 생성되어 GitHub에 올라가지 않습니다. **가상환경을 PC별로 공유할 필요는 없습니다.** CPU와 NVIDIA CUDA를 구분할 수 있도록 아래 스크립트가 `.venv-cpu` 또는 `.venv-cuda`를 자동 생성합니다.
+
+```bash
+git pull
+bash scripts/setup_env.sh
+```
+
+NVIDIA GPU가 `nvidia-smi`로 감지되면 CUDA 12.8 PyTorch 빌드를, 아니면 CPU 빌드를 설치하며 CUDA 사용 여부를 검증합니다. Ubuntu의 NVIDIA 드라이버 버전과 호환성이 필요합니다. 선택을 강제하려면 `bash scripts/setup_env.sh cpu` 또는 `bash scripts/setup_env.sh cuda`를 사용하세요. **기존 `.venv`는 건드리지 않습니다.**
+
+설치 후 실행:
+
+```bash
+# CPU 노트북
+.venv-cpu/bin/python study/05_vit.py
+
+# NVIDIA GPU 연구실 PC
+.venv-cuda/bin/python study/05_vit.py
+```
+
+가상환경 이름은 실제 GPU 성능을 결정하지 않습니다. 각 스크립트는 `torch.cuda.is_available()`로 GPU를 자동 선택합니다. 설치에 실패할 경우 [PyTorch 공식 설치 안내](https://pytorch.org/get-started/locally/)에서 현재 드라이버와 Python 버전에 맞는 명령어를 확인하세요.
+
 ## 실습 목록
 
 | 논문 | 핵심 주제 | 코드 | 상태 |
@@ -79,14 +102,13 @@ Image [1,3,224,224]
 ### 실행
 
 ```bash
-python3 -m venv .venv  # 처음 한 번만
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python study/05_vit.py
+bash scripts/setup_env.sh
+# 아래 중 해당 환경을 선택해 실행
+.venv-cpu/bin/python study/05_vit.py
+# 또는 .venv-cuda/bin/python study/05_vit.py
 ```
 
-기존 `.venv`를 쓰고 있다면 생성 단계는 생략하세요. CUDA 사용 여부는 설치된 PyTorch 환경에 따라 자동 결정됩니다. GPU 설치가 필요하면 [PyTorch 공식 안내](https://pytorch.org/get-started/locally/)를 참고하세요.
+환경 설정과 CUDA 검증은 위의 자동 설치 스크립트를 이용합니다.
 
 실행하면 다음 파일을 **로컬** `outputs/`에 생성합니다(버전 관리 제외).
 
