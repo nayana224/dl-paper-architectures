@@ -8,3 +8,4 @@ outputs/
 .ipynb_checkpoints/
 .vscode/
 assets/dinov2_dog.jpg
+assets/sam_dog.jpg
