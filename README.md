@@ -42,7 +42,7 @@ NVIDIA GPU가 `nvidia-smi`로 감지되면 CUDA 12.8 PyTorch 빌드를, 아니�
 | Attention Is All You Need | Self-Attention / Encoder–Decoder | [`study/04_transformer.py`](study/04_transformer.py) | 구현 |
 | Vision Transformer (ViT) | Patch, CLS, MHSA, Classification | [`study/05_vit.py`](study/05_vit.py) | 구현 |
 | DINOv2 | Self-supervised Visual Feature | [`study/06_dinov2.py`](study/06_dinov2.py) | 구현 |
-| Segment Anything (SAM) | Promptable Segmentation | `study/07_sam.py` | 선택 |
+| Segment Anything (SAM) | Promptable Segmentation | [`study/07_sam.py`](study/07_sam.py) | 구현 |
 | ACT | Action Chunking / CVAE | `study/08_act.py` | 예정 |
 | DDPM | Noise Prediction / Denoising | `study/09_ddpm.py` | 예정 |
 | Diffusion Policy | Conditional Action Generation | `study/10_diffusion_policy.py` | 예정 |
@@ -144,6 +144,43 @@ bash scripts/setup_env.sh
 첫 실행에는 PyTorch Hub의 강아지 실사진 샘플과 Hugging Face Pretrained Model Weight를 다운로드하여 캐시합니다. 다운로드가 제한된 환경에서는 `--image`를 지정하세요(모델 Weight 다운로드는 별도로 필요). 실행 결과는 `outputs/06_dinov2_features.png`에 저장합니다.
 
 **해석 주의:** PCA 채널별 색은 클래스 라벨이 아니고, 중앙 Patch와의 Cosine Similarity는 GT Mask나 SAM 출력이 아닙니다. 원본 이미지는 Processor에서 Resize/Crop될 수 있으므로 결과 Grid와 픽셀 위치가 완벽하게 대응하지 않을 수 있습니다. DINOv2 실습에서는 Feature가 구별되는지를 관찰하는 정도로 마무리합니다.
+
+## 07. Segment Anything (SAM) — Sparse/Dense Prompt 비교
+
+논문: [Segment Anything](https://arxiv.org/abs/2304.02643)  
+공식 코드: [facebookresearch/segment-anything](https://github.com/facebookresearch/segment-anything)  
+실습용 체크포인트: [facebook/sam-vit-base](https://huggingface.co/facebook/sam-vit-base)
+
+사전학습한 SAM을 이용해 **Point, Box, Point+Box, Point+Box+이전 Mask Logits** 네 가지 추론을 비교합니다. Mask Prompt는 다음 추론에 전달되는 **Dense Prompt**이며, GT Mask는 필요하지 않습니다.
+
+```text
+Image + Sparse Prompt (Point/Box)
+         ↓
+       SAM
+         ↓
+   Mask + Predicted IoU
+         ↓
+이전 Low-resolution Mask Logits
+         + Point/Box
+         ↓
+    Refinement 추론
+```
+
+```bash
+git pull origin main
+# 기존 CPU/CUDA 환경이 있으면 재설치할 필요 없음 (transformers 설치 필요)
+.venv-cuda/bin/python study/07_sam.py
+
+# 다른 사진은 Point 및 Box 픽셀 좌표를 함께 지정하는 것을 권장
+.venv-cuda/bin/python study/07_sam.py --image /path/to/photo.jpg \
+  --point 320 240 --box 150 100 490 390
+```
+
+CPU에서는 `.venv-cuda` 대신 `.venv-cpu`를 사용합니다. `transformers`가 없다면 해당 가상환경에서 `python -m pip install -r requirements.txt`를 먼저 실행하세요.
+
+첫 실행에 공개 강아지 사진과 Pretrained Weight를 다운로드합니다. 실행 후 `outputs/07_sam_prompts.png`에서 결과를 비교하세요. 기본 Point/Box는 예제 사진에 맞춘 대략적인 좌표이며 다른 사진에서는 조정이 필요합니다.
+
+**주의:** Predicted IoU는 GT와 비교한 실제 IoU가 아닙니다. 이전 Mask를 다시 입력한다고 반드시 개선되는 것은 아닙니다. 이 교육용 구현은 각 호출에서 Image Encoder를 재실행하므로, 공식 SAM의 Image Embedding 캐싱·실시간 Prompt 응답을 재현한 것은 아닙니다.
 
 ## 자료 관리 원칙
 
