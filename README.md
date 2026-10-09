@@ -41,7 +41,7 @@ NVIDIA GPU가 `nvidia-smi`로 감지되면 CUDA 12.8 PyTorch 빌드를, 아니�
 | DeepLabV3+ | Atrous Convolution / Segmentation | [`study/03_deeplabv3plus.py`](study/03_deeplabv3plus.py) | 구현 |
 | Attention Is All You Need | Self-Attention / Encoder–Decoder | [`study/04_transformer.py`](study/04_transformer.py) | 구현 |
 | Vision Transformer (ViT) | Patch, CLS, MHSA, Classification | [`study/05_vit.py`](study/05_vit.py) | 구현 |
-| DINOv2 | Self-supervised Visual Feature | `study/06_dinov2.py` | 선택 |
+| DINOv2 | Self-supervised Visual Feature | [`study/06_dinov2.py`](study/06_dinov2.py) | 구현 |
 | Segment Anything (SAM) | Promptable Segmentation | `study/07_sam.py` | 선택 |
 | ACT | Action Chunking / CVAE | `study/08_act.py` | 예정 |
 | DDPM | Noise Prediction / Denoising | `study/09_ddpm.py` | 예정 |
@@ -116,6 +116,34 @@ bash scripts/setup_env.sh
 - `01_attention_heatmap.png`: 첫 Head의 CLS Query → Patch Key Attention Weight
 
 Heatmap에는 CLS 자신에 대한 가중치를 제외한 196개 Patch의 가중치를 보여줍니다. 전체 CLS Attention 행(197개 Key)의 Softmax 합은 1입니다. 학습되지 않은 Attention을 모델의 판단 근거로 해석하지 마세요.
+
+## 06. DINOv2 — Pretrained Feature 살펴보기
+
+논문: [DINOv2: Learning Robust Visual Features without Supervision](https://arxiv.org/abs/2304.07193)  
+공식 코드: [facebookresearch/dinov2](https://github.com/facebookresearch/dinov2)  
+모델: [facebook/dinov2-small](https://huggingface.co/facebook/dinov2-small)
+
+DINOv2는 **Segmentation Mask를 직접 출력하는 모델이 아니라**, 재사용 가능한 이미지 Feature를 추출하는 Backbone입니다. 연구 목적상 내부 Teacher–Student Loss를 다시 구현하지 않고 Pretrained Inference 결과만 확인합니다.
+
+```text
+실제 사진 1장 → Image Processor → DINOv2-S/14
+→ CLS [1,384] + Patch Feature [1,256,384] (224x224 입력의 경우)
+→ Patch Feature PCA-RGB / 중앙 Patch 기준 Cosine Similarity
+```
+
+```bash
+# 노트북 또는 연구실 PC에서 처음 한 번만 설치
+bash scripts/setup_env.sh
+# CPU 예시 (CUDA PC라면 .venv-cuda/bin/python)
+.venv-cpu/bin/python study/06_dinov2.py
+
+# 직접 찍은 사진으로 실행
+.venv-cpu/bin/python study/06_dinov2.py --image /path/to/my_photo.jpg
+```
+
+첫 실행에는 PyTorch Hub의 강아지 실사진 샘플과 Hugging Face Pretrained Model Weight를 다운로드하여 캐시합니다. 다운로드가 제한된 환경에서는 `--image`를 지정하세요(모델 Weight 다운로드는 별도로 필요). 실행 결과는 `outputs/06_dinov2_features.png`에 저장합니다.
+
+**해석 주의:** PCA 채널별 색은 클래스 라벨이 아니고, 중앙 Patch와의 Cosine Similarity는 GT Mask나 SAM 출력이 아닙니다. 원본 이미지는 Processor에서 Resize/Crop될 수 있으므로 결과 Grid와 픽셀 위치가 완벽하게 대응하지 않을 수 있습니다. DINOv2 실습에서는 Feature가 구별되는지를 관찰하는 정도로 마무리합니다.
 
 ## 자료 관리 원칙
 
