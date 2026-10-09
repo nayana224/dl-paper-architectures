@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "assets" / "sam_dog.jpg"
 SAMPLE_URL = "https://raw.githubusercontent.com/pytorch/hub/master/images/dog.jpg"
 OUTPUT = ROOT / "outputs" / "07_sam_prompts.png"
+CORRECTED_OUTPUT = ROOT / "outputs" / "07_sam_corrected_box.png"
 CHECKPOINT = "facebook/sam-vit-base"
 
 
@@ -55,6 +56,9 @@ def main():
                         help="Positive point 픽셀 좌표")
     parser.add_argument("--box", type=float, nargs=4, metavar=("X0", "Y0", "X1", "Y1"),
                         help="Bounding box 픽셀 좌표")
+    parser.add_argument("--corrected-box", type=float, nargs=4,
+                        metavar=("X0", "Y0", "X1", "Y1"),
+                        help="비교할 넓은 Box 좌표 (기본: 샘플 강아지 전체를 덮는 비율)")
     args = parser.parse_args()
 
     image, path = get_image(args.image)
@@ -117,20 +121,48 @@ def main():
         previous_logits=both_logits, multimask=False,
     )
 
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    fig, axes = plt.subplots(2, 2, figsize=(10, 8), constrained_layout=True)
-    cases = [
+    original_cases = [
         ("Positive Point", point_mask, point, None),
         ("Bounding Box", box_mask, None, box),
         ("Point + Box", both_mask, point, box),
         ("Point + Box + Dense Mask", refined_mask, point, box),
     ]
-    for ax, (name, mask, marker, bounds) in zip(axes.flat, cases):
-        draw_overlay(ax, image, mask, marker, bounds)
-        ax.set_title(name)
-    fig.savefig(OUTPUT, dpi=140)
-    plt.close(fig)
-    print("Saved:", OUTPUT)
+    # 이미지 전체의 강아지를 감싸도록 기존 Box보다 넓힌 두 번째 조건.
+    # 다른 사진에서 기본값이 적합하지 않으면 --corrected-box를 직접 지정한다.
+    corrected_box = args.corrected_box or (0.08*w, 0.02*h, 0.97*w, 0.96*h)
+    cx0, cy0, cx1, cy1 = corrected_box
+    if not (0 <= cx0 < cx1 <= w and 0 <= cy0 < cy1 <= h):
+        raise ValueError(f"Corrected Box는 사진 크기 {w}x{h} 안에 있어야 합니다.")
+    print("Corrected Box:", tuple(round(x, 1) for x in corrected_box))
+    corrected_box_mask, _ = run("Corrected Box", boxes=corrected_box)
+    corrected_both_mask, corrected_logits = run(
+        "Point + Corrected Box", points=point, boxes=corrected_box,
+    )
+    corrected_refined_mask, _ = run(
+        "Point + Corrected Box + previous Mask",
+        points=point, boxes=corrected_box,
+        previous_logits=corrected_logits, multimask=False,
+    )
+    corrected_cases = [
+        ("Positive Point (reference)", point_mask, point, None),
+        ("Corrected Bounding Box", corrected_box_mask, None, corrected_box),
+        ("Point + Corrected Box", corrected_both_mask, point, corrected_box),
+        ("Point + Corrected Box + Dense Mask",
+         corrected_refined_mask, point, corrected_box),
+    ]
+
+    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+    for output_path, cases in (
+        (OUTPUT, original_cases),
+        (CORRECTED_OUTPUT, corrected_cases),
+    ):
+        fig, axes = plt.subplots(2, 2, figsize=(10, 8), constrained_layout=True)
+        for ax, (name, mask, marker, bounds) in zip(axes.flat, cases):
+            draw_overlay(ax, image, mask, marker, bounds)
+            ax.set_title(name)
+        fig.savefig(output_path, dpi=140)
+        plt.close(fig)
+        print("Saved:", output_path)
     print("Predicted IoU는 GT와 계산한 실제 IoU가 아닌 모델의 Mask 품질 예측입니다.")
     print("Refinement 결과가 반드시 개선되는 것은 아닙니다.")
 
