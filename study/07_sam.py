@@ -12,7 +12,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from PIL import Image, ImageDraw
+from PIL import Image
 from transformers import SamModel, SamProcessor
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,8 +82,10 @@ def main():
         if boxes is not None:
             kwargs["input_boxes"] = [[list(boxes)]]    # [batch, point_batch, xyxy]
         inputs = processor(**kwargs).to(device)
-        # Dense Prompt로 넘기는 값은 이전 저해상도 Mask logits [B,1,1,256,256].
+        # Dense Prompt: Conv2d는 [B, 1, 256, 256] 형태의 Mask logits을 받는다.
         if previous_logits is not None:
+            if previous_logits.ndim != 4 or previous_logits.shape[1] != 1:
+                raise ValueError(f"input_masks must be [B,1,H,W], got {tuple(previous_logits.shape)}")
             inputs["input_masks"] = previous_logits
 
         with torch.inference_mode():
@@ -99,7 +101,7 @@ def main():
             binarize=False,
         )[0]  # [point_batch, mask_candidates, original_height, original_width]
         full_mask = resized[0, index].numpy() > 0
-        low_res = output.pred_masks[:, :, index:index+1].detach()  # [1,1,1,256,256]
+        low_res = output.pred_masks[:, 0, index].unsqueeze(1).detach()  # [B,1,256,256]
         print(f"{label}: low-res {list(output.pred_masks.shape)}, "
               f"predicted IoU {scores.detach().cpu().tolist()}, selected {index}, "
               f"foreground pixels {int(full_mask.sum())}")
