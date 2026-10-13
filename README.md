@@ -171,6 +171,29 @@ CPU에서는 `.venv-cuda/bin/python`을 `.venv-cpu/bin/python`으로 변경하�
 
 </details>
 
+<details>
+<summary><strong>08 · ACT 배경지식: AE → VAE</strong></summary>
+
+ACT의 CVAE를 이해하기 위한 **독립적인 교육용 예제**입니다. ACT 원본 Policy 구현은 아직 포함하지 않습니다. 두 예제는 같은 가상 14차원 관절 궤적([512,10,14])을 사용하고, 첫 샘플의 세 관절을 시각화합니다.
+
+```bash
+git pull origin main
+.venv-cuda/bin/python study/act/02_autoencoder.py
+.venv-cuda/bin/python study/act/03_vae.py
+
+# CPU 환경: .venv-cpu/bin/python 사용
+# 학습 횟수/잠재공간 KL 제약 변경
+.venv-cuda/bin/python study/act/03_vae.py --epochs 500 --beta 0.1
+```
+
+- `02_autoencoder.py`: Input/GT `[B,10,14]` → Flatten → Encoder → `z[B,8]` → Decoder → Reconstruction `[B,10,14]`; MSE만 사용.
+- `03_vae.py`: Encoder → `mu[B,8]`, `logvar[B,8]` → reparameterization → `z[B,8]`; **MSE + beta × KL**로 학습. 시각화 시에는 무작위 샘플 대신 `z=mu`를 사용해 복원값을 일정하게 표시합니다.
+- 결과: `outputs/08_act_ae.png`, `outputs/08_act_vae.png` (원본/복원 궤적 및 학습 Loss).
+
+**해석:** 이 값들은 실측 로봇 데이터가 아닌 합성 관절 궤적입니다. VAE의 KL은 표준정규 사전분포 쪽으로 잠재분포를 제약하지만 유효한 동작 생성을 보장하지 않습니다. 두 코드의 출력 품질은 `beta`, 학습 횟수에 따라 달라질 수 있고, CVAE의 **조건부** 동작 생성은 다음 단계에서 다룹니다.
+
+</details>
+
 ## 출력 및 파일 구조
 
 ```text
@@ -182,7 +205,10 @@ dl-paper-architectures/
 │   ├── 04_transformer.py
 │   ├── 05_vit.py
 │   ├── 06_dinov2.py
-│   └── 07_sam.py
+│   ├── 07_sam.py
+│   └── act/
+│       ├── 02_autoencoder.py
+│       └── 03_vae.py
 ├── scripts/
 │   └── setup_env.sh
 ├── assets/                   # 예제 입력 이미지 등 (필요시 생성)
