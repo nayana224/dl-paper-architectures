@@ -190,6 +190,20 @@ git pull origin main
 - `03_vae.py`: Encoder → `mu[B,8]`, `logvar[B,8]` → reparameterization → `z[B,8]`; **MSE + beta × KL**로 학습. 시각화 시에는 무작위 샘플 대신 `z=mu`를 사용해 복원값을 일정하게 표시합니다.
 - 결과: `outputs/08_act_ae.png`, `outputs/08_act_vae.png` (원본/복원 궤적 및 학습 Loss).
 
+### ACT Figure 4 — Forward Only (Tensor 흐름)
+
+```bash
+.venv-cuda/bin/python study/act/04_act_forward.py
+# 100개 미래 Action으로 비교
+.venv-cuda/bin/python study/act/04_act_forward.py --chunk-size 100
+```
+
+- **Input:** 현재 joints `[B,14]`, 가상 카메라 `[B,2,3,32,32]`, GT Action Chunk `[B,K,14]`. GT 행은 미래 시점, 열은 14개 관절·그리퍼 제어축입니다.
+- **CVAE Encoder (학습 모드만):** `CLS[1] + joints[1] + GT actions[K]` → `[B,K+2,32]` → `mu,logvar,z[B,8]`.
+- **ACT Policy (학습/추론 모두):** 카메라 CNN Feature Token + joints Token + z Token → Policy Transformer Encoder → Position-based Action Queries K개를 사용하는 Transformer Decoder → `[B,K,14]`.
+- **추론:** GT 없이 `z=0`으로 왼쪽 CVAE Encoder를 생략합니다.
+- **주의:** 논문 흐름을 교육용으로 축소한 **무작위 초기화 모델의 순전파 1회**로, 실측 이미지/실제 ACT 체크포인트/학습/유효한 로봇 동작 예측은 포함되지 않습니다. 표시하는 L1 및 KL 값도 학습된 성능 지표가 아닙니다.
+
 **해석:** 이 값들은 실측 로봇 데이터가 아닌 합성 관절 궤적입니다. VAE의 KL은 표준정규 사전분포 쪽으로 잠재분포를 제약하지만 유효한 동작 생성을 보장하지 않습니다. 두 코드의 출력 품질은 `beta`, 학습 횟수에 따라 달라질 수 있고, CVAE의 **조건부** 동작 생성은 다음 단계에서 다룹니다.
 
 </details>
@@ -208,7 +222,8 @@ dl-paper-architectures/
 │   ├── 07_sam.py
 │   └── act/
 │       ├── 02_autoencoder.py
-│       └── 03_vae.py
+│       ├── 03_vae.py
+│       └── 04_act_forward.py
 ├── scripts/
 │   └── setup_env.sh
 ├── assets/                   # 예제 입력 이미지 등 (필요시 생성)
