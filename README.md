@@ -25,7 +25,7 @@
 | 05 | Vision Transformer (ViT) | Patch Embedding, CLS Token, MHSA | [`05_vit.py`](study/05_vit.py) | 완료 |
 | 06 | DINOv2 | Pretrained Visual Feature, PCA, Cosine Similarity | [`06_dinov2.py`](study/06_dinov2.py) | 완료 |
 | 07 | Segment Anything (SAM) | Sparse / Dense Prompt, Mask Refinement | [`07_sam.py`](study/07_sam.py) | 완료 |
-| 08 | ACT | Action Chunking, CVAE | — | 예정 |
+| 08 | ACT | Action Chunking, CVAE, Transformer Policy, Temporal Ensembling | [`08_act.py`](study/08_act.py) | 실습 |
 | 09 | DDPM | Noise Prediction, Denoising | — | 예정 |
 | 10 | Diffusion Policy | Conditional Action Generation | — | 예정 |
 
@@ -243,3 +243,17 @@ dl-paper-architectures/
 5. 공식 구현과 다른 단순화 사항 및 결과 해석의 한계를 명시합니다.
 
 > 본 저장소는 **학습과 연구 이해를 위한 실습 아카이브**입니다. 공식 논문 및 모델 구현의 라이선스와 인용 조건은 각 프로젝트를 확인해 주세요.
+
+
+### ACT 한 파일로 아키텍처 전체 확인
+
+기존 `study/act/` 코드는 이전 단계별 학습 자료로 유지합니다. **새로 사용하는 통합 ACT 코드는 `study/08_act.py` 한 파일**입니다.
+
+```bash
+.venv-cpu/bin/python study/08_act.py
+.venv-cpu/bin/python study/08_act.py --train-step
+# 연구실 GPU에서 논문 Figure 4에 가까운 설정
+.venv-cuda/bin/python study/08_act.py --hidden 512 --layers 4 --decoder-layers 7
+```
+
+4개 가상 카메라 + 14차원 관절 + GT action chunk → CVAE posterior → ResNet18 feature → Transformer encoder/decoder → k×14 예측을 한 스크립트에서 출력합니다. 학습 때는 GT를 이용하여 z를 추정하고, 추론 때는 z=0으로 동작합니다. Synthetic data / random weights이므로 로봇 제어에는 사용할 수 없습니다.
