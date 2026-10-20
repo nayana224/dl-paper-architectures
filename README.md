@@ -172,39 +172,22 @@ CPU에서는 `.venv-cuda/bin/python`을 `.venv-cpu/bin/python`으로 변경하�
 </details>
 
 <details>
-<summary><strong>08 · ACT 배경지식: AE → VAE</strong></summary>
+<summary><strong>08 · ACT: Action Chunking with Transformers</strong></summary>
 
-ACT의 CVAE를 이해하기 위한 **독립적인 교육용 예제**입니다. ACT 원본 Policy 구현은 아직 포함하지 않습니다. 두 예제는 같은 가상 14차원 관절 궤적([512,10,14])을 사용하고, 첫 샘플의 세 관절을 시각화합니다.
-
-```bash
-git pull origin main
-.venv-cuda/bin/python study/act/02_autoencoder.py
-.venv-cuda/bin/python study/act/03_vae.py
-
-# CPU 환경: .venv-cpu/bin/python 사용
-# 학습 횟수/잠재공간 KL 제약 변경
-.venv-cuda/bin/python study/act/03_vae.py --epochs 500 --beta 0.1
-```
-
-- `02_autoencoder.py`: Input/GT `[B,10,14]` → Flatten → Encoder → `z[B,8]` → Decoder → Reconstruction `[B,10,14]`; MSE만 사용.
-- `03_vae.py`: Encoder → `mu[B,8]`, `logvar[B,8]` → reparameterization → `z[B,8]`; **MSE + beta × KL**로 학습. 시각화 시에는 무작위 샘플 대신 `z=mu`를 사용해 복원값을 일정하게 표시합니다.
-- 결과: `outputs/08_act_ae.png`, `outputs/08_act_vae.png` (원본/복원 궤적 및 학습 Loss).
-
-### ACT Figure 4 — Forward Only (Tensor 흐름)
+논문 Figure 4의 전체 데이터 흐름을 코드 한 파일에서 확인합니다.
 
 ```bash
-.venv-cuda/bin/python study/act/04_act_forward.py
-# 100개 미래 Action으로 비교
-.venv-cuda/bin/python study/act/04_act_forward.py --chunk-size 100
+.venv-cpu/bin/python study/08_act.py
+.venv-cpu/bin/python study/08_act.py --train-step
 ```
 
-- **Input:** 현재 joints `[B,14]`, 가상 카메라 `[B,2,3,32,32]`, GT Action Chunk `[B,K,14]`. GT 행은 미래 시점, 열은 14개 관절·그리퍼 제어축입니다.
-- **CVAE Encoder (학습 모드만):** `CLS[1] + joints[1] + GT actions[K]` → `[B,K+2,32]` → `mu,logvar,z[B,8]`.
-- **ACT Policy (학습/추론 모두):** 카메라 CNN Feature Token + joints Token + z Token → Policy Transformer Encoder → Position-based Action Queries K개를 사용하는 Transformer Decoder → `[B,K,14]`.
-- **추론:** GT 없이 `z=0`으로 왼쪽 CVAE Encoder를 생략합니다.
-- **주의:** 논문 흐름을 교육용으로 축소한 **무작위 초기화 모델의 순전파 1회**로, 실측 이미지/실제 ACT 체크포인트/학습/유효한 로봇 동작 예측은 포함되지 않습니다. 표시하는 L1 및 KL 값도 학습된 성능 지표가 아닙니다.
+- 입력: 4 RGB Images `[B,4,3,H,W]`, joints `[B,14]`, GT Action Chunk `[B,K,14]`
+- CVAE: [CLS]+joints+GT → posterior mu/logvar → latent z
+- Policy: ResNet18 feature+joints+z → Transformer Encoder/Decoder → `[B,K,14]`
+- 학습: Reconstruction + KL; 추론: GT 없이 `z=0`; Temporal Ensembling 예제 포함
+- `--hidden 512 --layers 4 --decoder-layers 7` 옵션으로 큰 네트워크 구조 확인 가능
 
-**해석:** 이 값들은 실측 로봇 데이터가 아닌 합성 관절 궤적입니다. VAE의 KL은 표준정규 사전분포 쪽으로 잠재분포를 제약하지만 유효한 동작 생성을 보장하지 않습니다. 두 코드의 출력 품질은 `beta`, 학습 횟수에 따라 달라질 수 있고, CVAE의 **조건부** 동작 생성은 다음 단계에서 다룹니다.
+합성 입력과 무작위 가중치를 사용한 학습용 구현입니다. 실제 로봇 정책이나 논문 성능의 재현은 아닙니다.
 
 </details>
 
@@ -220,10 +203,7 @@ dl-paper-architectures/
 │   ├── 05_vit.py
 │   ├── 06_dinov2.py
 │   ├── 07_sam.py
-│   └── act/
-│       ├── 02_autoencoder.py
-│       ├── 03_vae.py
-│       └── 04_act_forward.py
+│   └── 08_act.py
 ├── scripts/
 │   └── setup_env.sh
 ├── assets/                   # 예제 입력 이미지 등 (필요시 생성)
@@ -243,17 +223,3 @@ dl-paper-architectures/
 5. 공식 구현과 다른 단순화 사항 및 결과 해석의 한계를 명시합니다.
 
 > 본 저장소는 **학습과 연구 이해를 위한 실습 아카이브**입니다. 공식 논문 및 모델 구현의 라이선스와 인용 조건은 각 프로젝트를 확인해 주세요.
-
-
-### ACT 한 파일로 아키텍처 전체 확인
-
-기존 `study/act/` 코드는 이전 단계별 학습 자료로 유지합니다. **새로 사용하는 통합 ACT 코드는 `study/08_act.py` 한 파일**입니다.
-
-```bash
-.venv-cpu/bin/python study/08_act.py
-.venv-cpu/bin/python study/08_act.py --train-step
-# 연구실 GPU에서 논문 Figure 4에 가까운 설정
-.venv-cuda/bin/python study/08_act.py --hidden 512 --layers 4 --decoder-layers 7
-```
-
-4개 가상 카메라 + 14차원 관절 + GT action chunk → CVAE posterior → ResNet18 feature → Transformer encoder/decoder → k×14 예측을 한 스크립트에서 출력합니다. 학습 때는 GT를 이용하여 z를 추정하고, 추론 때는 z=0으로 동작합니다. Synthetic data / random weights이므로 로봇 제어에는 사용할 수 없습니다.
