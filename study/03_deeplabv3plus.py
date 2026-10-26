@@ -1,5 +1,5 @@
-"""DeepLabV3+ (2018): ASPP multi-scale context + low-level Decoder, Pixel Loss.
-교육용 축소판. 논문의 Xception backbone, output stride, atrous separable conv 전체 재현은 아님.
+"""DeepLabV3+(2018): ASPP의 다중 스케일 문맥, 저수준 특징 결합, 픽셀 손실을 확인한다.
+교육용 축소 구조로, 원 논문의 Xception 백본·출력 보폭·팽창 분리 합성곱 전체를 재현하지는 않는다.
 """
 import torch
 from torch import nn
@@ -10,7 +10,7 @@ from torchvision.transforms import functional as TF
 class ASPP(nn.Module):
     def __init__(self):
         super().__init__()
-        # 서로 다른 receptive field를 위한 병렬 dilation branch.
+        # 서로 다른 수용 영역을 얻기 위해 팽창률이 다른 분기를 병렬로 둔다.
         self.branches=nn.ModuleList([
             nn.Sequential(nn.Conv2d(32,8,1),nn.ReLU()),
             *[nn.Sequential(nn.Conv2d(32,8,3,padding=r,dilation=r),nn.ReLU())

@@ -1,5 +1,5 @@
-"""Attention Is All You Need (2017): Encoder–Decoder, masked self/cross attention, next-token loss.
-실제 번역 모델이 아닌 1-layer/소형 차원 교육용 구현. Input은 가상 token ID 문장.
+"""Attention Is All You Need(2017): 인코더·디코더, 마스킹된 자기·교차 어텐션, 다음 토큰 손실을 확인한다.
+실제 번역 모델이 아닌 단일 층의 소형 교육용 구현이다. 입력은 가상 토큰 번호로 만든 문장이다.
 """
 import math
 import torch
@@ -21,7 +21,7 @@ class MultiHeadAttention(nn.Module):
         k=self.k(key_value).reshape(b,m,self.heads,self.head_dim).transpose(1,2)
         v=self.v(key_value).reshape(b,m,self.heads,self.head_dim).transpose(1,2)
         scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-        if causal:  # 미래 token Key는 볼 수 없도록 -inf 처리.
+        if causal:  # 미래 토큰의 키를 참조하지 못하도록 음의 무한대로 가린다.
             mask=torch.triu(torch.ones(n,m,device=scores.device,dtype=torch.bool),1)
             scores=scores.masked_fill(mask,float("-inf"))
         weights=scores.softmax(-1)
@@ -37,7 +37,7 @@ class EncoderBlock(nn.Module):
         self.norm1,self.norm2=nn.LayerNorm(32),nn.LayerNorm(32)
     def forward(self,x):
         x=self.norm1(x+self.attn(x,x,name="Encoder self"))
-        return self.norm2(x+self.ff(x))  # Original Transformer: Post-LN
+        return self.norm2(x+self.ff(x))  # 원본 Transformer처럼 잔차 덧셈 후 층 정규화를 적용한다.
 
 class DecoderBlock(nn.Module):
     def __init__(self):
@@ -64,7 +64,7 @@ class MiniTransformer(nn.Module):
                       (-math.log(10000.0)/self.d))
         pe=torch.zeros(ids.shape[1],self.d,device=ids.device)
         pe[:,0::2],pe[:,1::2]=torch.sin(p*div),torch.cos(p*div)
-        return x+pe.unsqueeze(0)  # 원 논문의 고정 sinusoidal position encoding.
+        return x+pe.unsqueeze(0)  # 원 논문의 고정 사인·코사인 위치 인코딩을 더한다.
     def forward(self,src,tgt_input):
         s=self.embed_position(src,self.src_embed)
         t=self.embed_position(tgt_input,self.tgt_embed)
@@ -80,9 +80,9 @@ def main():
     torch.manual_seed(0)
     device="cuda" if torch.cuda.is_available() else "cpu"
     src=torch.tensor([[4,5,6,2]],device=device)
-    target=torch.tensor([[1,7,8,9,2]],device=device)  # 가상 문장: BOS=1, EOS=2
-    tgt_input=target[:,:-1]  # Teacher Forcing: BOS부터 입력
-    gt=target[:,1:]          # 한 칸 오른쪽으로 이동한 Next-token GT
+    target=torch.tensor([[1,7,8,9,2]],device=device)  # 가상 문장: 시작 토큰은 1, 종료 토큰은 2다.
+    tgt_input=target[:,:-1]  # 교사 강제 학습: 시작 토큰부터 디코더에 입력한다.
+    gt=target[:,1:]          # 입력보다 한 칸 뒤에 오는 다음 토큰 정답
     print("Source:",src.tolist(),"Decoder input:",tgt_input.tolist(),"GT:",gt.tolist())
     model=MiniTransformer().to(device)
     optimizer=torch.optim.Adam(model.parameters(),lr=1e-3)

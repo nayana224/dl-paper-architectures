@@ -1,4 +1,4 @@
-"""ResNet: residual add → classification loss → one optimizer step.
+"""ResNet: 잔차 연결의 덧셈부터 분류 손실과 가중치 갱신까지 확인한다.
 
 학습용 소형 모델. 출력 수치는 무작위 초기화 상태의 1-step 결과다.
 """
@@ -14,7 +14,7 @@ class ResidualBlock(nn.Module):
                                nn.BatchNorm2d(cout), nn.ReLU(),
                                nn.Conv2d(cout, cout, 3, 1, 1, bias=False),
                                nn.BatchNorm2d(cout))
-        # 크기가 바뀌면 1x1 Projection으로 Shortcut 크기를 맞춘다.
+        # 크기가 바뀌면 1×1 투영으로 지름길 연결 크기를 맞춘다.
         self.shortcut = (nn.Identity() if cin == cout and stride == 1 else
                          nn.Sequential(nn.Conv2d(cin, cout, 1, stride, bias=False),
                                        nn.BatchNorm2d(cout)))
@@ -22,7 +22,7 @@ class ResidualBlock(nn.Module):
         f = self.f(x)
         s = self.shortcut(x)
         print("F(x), shortcut:", tuple(f.shape), tuple(s.shape))
-        return torch.relu(f + s)  # ResNet v1: Add 이후 ReLU
+        return torch.relu(f + s)  # ResNet v1에서는 두 경로를 더한 뒤 ReLU를 적용한다.
 
 class MiniResNet(nn.Module):
     def __init__(self):
@@ -37,7 +37,7 @@ class MiniResNet(nn.Module):
         x = self.block1(x)
         x = self.block2(x)
         print("Feature:", tuple(x.shape))
-        x = x.mean(dim=(2, 3))  # Global Average Pooling
+        x = x.mean(dim=(2, 3))  # 전역 평균 풀링
         print("Pooled:", tuple(x.shape))
         return self.head(x)
 
@@ -47,7 +47,7 @@ def main():
     image = Image.new("RGB", (64, 64), "white")
     ImageDraw.Draw(image).rectangle((12, 12, 52, 52), fill="blue")
     x = TF.to_tensor(image).unsqueeze(0).to(device)
-    gt = torch.tensor([1], device=device)  # 가상 GT, 분류 성능 평가 아님
+    gt = torch.tensor([1], device=device)  # 학습 흐름 확인용 가상 정답이며 실제 분류 성능은 평가하지 않는다.
     model = MiniResNet().to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     optimizer.zero_grad()

@@ -1,6 +1,6 @@
-"""ACT Figure 4: CVAE → multi-view ResNet18 → Transformer → action chunk.
+"""ACT 그림 4: 조건부 변분 오토인코더 → 다중 시점 ResNet18 → Transformer → 행동 묶음.
 
-논문 기준: 4 RGB cameras (480x640), joints/actions 14 DOF, chunk 100, hidden 512.\n한 파일에서 training, inference(z=0), L1+KL 및 temporal ensembling을 확인한다.
+논문 설정: RGB 카메라 4대(480×640), 관절·행동 14차원, 행동 묶음 100개, 은닉 차원 512.\n한 파일에서 학습, 추론(z=0), L1·KL 손실과 시간적 앙상블을 확인한다.
 합성 입력/무작위 가중치이며 실제 ALOHA 정책을 재현하지 않는다.
 """
 import argparse
@@ -17,7 +17,7 @@ def shape(name, tensor):
 
 
 def sinusoid(length, width, device):
-    """1D sinusoidal positions, output [length, width]."""
+    """1차원 사인·코사인 위치 인코딩을 [길이,특징 차원]으로 반환한다."""
     p = torch.arange(length, device=device, dtype=torch.float32).unsqueeze(1)
     divisor = torch.exp(
         torch.arange(0, width, 2, device=device, dtype=torch.float32)
@@ -30,7 +30,7 @@ def sinusoid(length, width, device):
 
 
 def position_2d(h, w, hidden, device):
-    """2D sinusoidal positions for a flattened H×W feature map."""
+    """높이×너비 특징 지도를 펼칠 때 사용할 2차원 사인·코사인 위치 인코딩을 만든다."""
     assert hidden % 4 == 0
     yy = sinusoid(h, hidden // 2, device)
     xx = sinusoid(w, hidden // 2, device)
@@ -41,7 +41,7 @@ def position_2d(h, w, hidden, device):
 
 
 class ActionLatentEncoder(nn.Module):
-    """Posterior q(z | q_t, A_t:t+k). Uses GT actions only at training time."""
+    """관절과 정답 행동으로 사후분포를 추정하며, 정답 행동은 학습할 때만 사용한다."""
     def __init__(self, dof=14, hidden=512, latent=32, layers=4, heads=8):
         super().__init__()
         self.cls = nn.Parameter(torch.zeros(1, 1, hidden))
@@ -61,7 +61,7 @@ class ActionLatentEncoder(nn.Module):
         joint_tokens = self.joints(joints).unsqueeze(1)
         action_tokens = self.actions(gt_actions)
         tokens = torch.cat((cls, joint_tokens, action_tokens), dim=1)
-        # Positions are assigned to action sequence, with zeros for CLS/joints.
+        # 행동 순서에는 위치 인코딩을 더하고 CLS·관절 토큰에는 0을 더한다.
         positions = torch.zeros_like(tokens)
         positions[:, 2:] = sinusoid(k, tokens.size(-1), tokens.device)
         tokens = tokens + positions
@@ -78,11 +78,11 @@ class ActionLatentEncoder(nn.Module):
 
 
 class MultiViewResNet(nn.Module):
-    """One weight-shared ResNet18 feature extractor for every camera."""
+    """카메라마다 동일한 가중치를 공유하는 ResNet18로 시각 특징을 추출한다."""
     def __init__(self, hidden=512):
         super().__init__()
         backbone = resnet18(weights=None)
-        # Keep conv feature map, not global pooling or 1000-class classifier.
+        # 전역 풀링과 1000종 분류기는 제거하고 합성곱 특징 지도만 유지한다.
         self.features = nn.Sequential(*list(backbone.children())[:-2])
         self.project = nn.Conv2d(512, hidden, 1)
 
@@ -103,7 +103,7 @@ class MultiViewResNet(nn.Module):
 
 
 class ACTPolicy(nn.Module):
-    """ACT policy with fixed action-query positions."""
+    """미래 행동 시점마다 고정된 위치 쿼리를 사용하는 ACT 정책이다."""
     def __init__(self, dof=14, cameras=4, chunk=100, hidden=512,
                  latent=32, heads=8, encoder_layers=4, decoder_layers=7):
         super().__init__()
@@ -124,7 +124,7 @@ class ACTPolicy(nn.Module):
             enc_layer, encoder_layers, enable_nested_tensor=False
         )
         self.policy_decoder = nn.TransformerDecoder(dec_layer, decoder_layers)
-        # Figure 4 uses fixed query positions (rather than GT action embeddings).
+        # 그림 4에서는 정답 행동 임베딩이 아니라 고정된 위치 쿼리를 사용한다.
         self.register_buffer("query_positions", sinusoid(chunk, hidden, "cpu"))
         self.action_head = nn.Linear(hidden, dof)
 
@@ -136,7 +136,7 @@ class ACTPolicy(nn.Module):
             assert gt_actions.shape == (b, self.chunk, self.dof)
             z, mu, logvar = self.latent_encoder(joints, gt_actions, trace)
         else:
-            # Paper's deterministic inference convention: prior mean z=0.
+            # 논문의 결정론적 추론 방식에 따라 사전분포 평균인 z=0을 사용한다.
             z = joints.new_zeros(b, self.latent)
             mu = logvar = None
             if trace:
@@ -161,7 +161,7 @@ class ACTPolicy(nn.Module):
 
 
 def act_loss(prediction, target, mu, logvar, beta=10.0):
-    """L1 reconstruction + beta * KL (diagonal posterior against N(0,I))."""
+    """L1 재구성 손실과 베타 가중 KL 손실을 더해 정규분포 사전분포와의 차이를 제약한다."""
     reconstruction = F.l1_loss(prediction, target)
     kl = -0.5 * (1 + logvar - mu.square() - logvar.exp())
     kl = kl.sum(dim=-1).mean()
@@ -169,15 +169,15 @@ def act_loss(prediction, target, mu, logvar, beta=10.0):
 
 
 def temporal_ensemble(chunks, now, decay=0.01):
-    """Combine overlapping action chunks.
+    """같은 실행 시점에 겹치는 행동 묶음의 예측을 결합한다.
 
-    chunks: list of (prediction_start_t, actions[K,DOF]).
-    In ACT's weighting convention newer predictions receive higher weights.
+    입력 묶음은 (예측 시작 시각, 행동[묶음 길이,제어 차원]) 쌍의 목록이다.
+    이 예제에서는 더 최근에 예측한 행동에 더 높은 가중치를 부여한다.
     """
     relevant = [(t, a[now - t]) for t, a in chunks if t <= now < t + len(a)]
     if not relevant:
         raise ValueError("No chunk covers the requested execution timestep")
-    # Newest first, weight exp(-decay * age).
+    # 가장 최신 예측을 기준으로 예측 시점의 차이에 따라 지수 가중치를 계산한다.
     newest = max(t for t, _ in relevant)
     values = torch.stack([a for _, a in relevant])
     weights = values.new_tensor([math.exp(-decay * (newest - t)) for t, _ in relevant])
@@ -187,7 +187,7 @@ def temporal_ensemble(chunks, now, decay=0.01):
 
 def main():
     parser = argparse.ArgumentParser()
-    # Figure 4 dimensions. Use smaller CLI overrides only for low-memory smoke tests.
+    # 기본값은 그림 4의 차원이다. 메모리가 부족한 경우에만 실행 옵션으로 크기를 줄인다.
     parser.add_argument("--image-height", type=int, default=480)
     parser.add_argument("--image-width", type=int, default=640)
     parser.add_argument("--chunk-size", type=int, default=100)
@@ -205,7 +205,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ACTPolicy(chunk=args.chunk_size, hidden=args.hidden,
                       encoder_layers=args.layers, decoder_layers=args.decoder_layers).to(device)
-    # Batch=1 is intentional: large models are memory heavy on laptops.
+    # 대형 모델의 메모리 사용량을 고려해 배치 크기를 1로 둔다.
     images = torch.randn(1, 4, 3, args.image_height, args.image_width, device=device)
     joints = torch.randn(1, 14, device=device) * 0.1
     gt = joints.unsqueeze(1) + torch.linspace(

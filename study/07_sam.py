@@ -1,6 +1,6 @@
-"""SAM: one image, four prompt settings, one comparison figure.
+"""SAM: 이미지 한 장에서 네 가지 프롬프트 조건을 그림 하나로 비교한다.
 
-Pretrained inference only: point / box / both / mask refinement.
+사전학습 모델로 추론만 수행한다: 점·상자·점과 상자·이전 마스크를 이용한 보정.
 """
 import argparse
 from pathlib import Path
@@ -58,8 +58,8 @@ def main():
 
     image, path = get_image(args.image)
     w, h = image.size
-    # 기본 좌표는 샘플 강아지 사진의 대략적인 중앙 객체에 맞춘 비율이다.
-    # 다른 사진은 --point / --box로 직접 지정하는 것을 권장한다.
+    # 기본 좌표는 강아지 예제 사진에서 중앙 물체를 가리키도록 정한 비율이다.
+    # 다른 사진을 사용한다면 점과 상자 좌표를 직접 지정하는 것이 좋다.
     point = args.point or (0.52*w, 0.52*h)
     box = args.box or (0.25*w, 0.13*h, 0.83*w, 0.94*h)
     px, py = point
@@ -77,11 +77,11 @@ def main():
         kwargs = {"images": image, "return_tensors": "pt"}
         if points is not None:
             kwargs["input_points"] = [[list(points)]]  # [batch, point_batch, num_points, xy]
-            kwargs["input_labels"] = [[[1]]]           # Positive point
+            kwargs["input_labels"] = [[[1]]]           # 물체에 포함되는 점을 뜻하는 양성 프롬프트
         if boxes is not None:
             kwargs["input_boxes"] = [[list(boxes)]]    # [batch, point_batch, xyxy]
         inputs = processor(**kwargs).to(device)
-        # Dense Prompt: Conv2d는 [B, 1, 256, 256] 형태의 Mask logits을 받는다.
+        # 밀집 프롬프트: 합성곱 계층에는 [배치,1,256,256] 형태의 마스크 점수를 전달한다.
         if previous_logits is not None:
             if previous_logits.ndim != 4 or previous_logits.shape[1] != 1:
                 raise ValueError(f"input_masks must be [B,1,H,W], got {tuple(previous_logits.shape)}")
@@ -92,7 +92,7 @@ def main():
 
         scores = output.iou_scores[0, 0]
         index = int(scores.argmax().item())
-        # processor는 입력 원본 크기에 맞춰 Mask logits을 복원한다.
+        # 전처리기는 마스크 점수를 원본 이미지 크기에 맞게 복원한다.
         resized = processor.image_processor.post_process_masks(
             output.pred_masks.cpu(),
             inputs["original_sizes"].cpu(),
@@ -109,8 +109,8 @@ def main():
     point_mask, _ = run("Point", points=point)
     box_mask, _ = run("Box", boxes=box)
     both_mask, both_logits = run("Point + Box", points=point, boxes=box)
-    # 동일 Image Embedding을 모델 내부에서 재계산한다. 아래는 Mask logits 재사용을
-    # 보여주는 실습이며, 성능 최적화/이미지 캐싱 자체를 시연하는 코드는 아니다.
+    # 동일한 이미지 특징을 모델 안에서 다시 계산한다. 여기서는 마스크 점수의 재사용을
+    # 보여줄 뿐이며 이미지 특징을 캐시에 저장해 속도를 높이는 예제는 아니다.
     refined_mask, _ = run(
         "Point + Box + previous Mask", points=point, boxes=box,
         previous_logits=both_logits, multimask=False,

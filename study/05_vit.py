@@ -1,13 +1,13 @@
-"""ViT: patchify → CLS → self-attention → classification → one update.
+"""ViT: 패치 분할 → CLS → 자기 어텐션 → 분류 → 한 번의 가중치 갱신을 확인한다.
 
-Q/K/V를 직접 구현하고 첫 head의 CLS attention을 시각화한다.
-무작위 가중치와 한 장의 합성 이미지를 사용한다.
+쿼리·키·값 연산을 직접 구현하고 첫 번째 헤드의 CLS 어텐션을 시각화한다.
+무작위 초기화 모델과 합성 이미지 한 장을 사용한다.
 """
 
 from pathlib import Path
 
 import matplotlib
-matplotlib.use("Agg")  # GUI가 없는 연구실 PC에서도 PNG 저장 가능
+matplotlib.use("Agg")  # 화면 인터페이스가 없는 환경에서도 그림을 저장한다.
 import matplotlib.pyplot as plt
 import torch
 from torch import nn
@@ -25,18 +25,18 @@ OUTPUT_DIR = Path(__file__).resolve().parents[1] / "outputs"
 
 
 class MultiHeadAttention(nn.Module):
-    """같은 입력에서 Q/K/V를 만들고 여러 head에서 Self-Attention을 계산한다."""
+    """같은 입력으로 쿼리·키·값을 만들고 여러 헤드에서 자기 어텐션을 계산한다."""
 
     def __init__(self):
         super().__init__()
-        # 입력 token 하나(D=128)에서 Q, K, V를 한 번에 계산한다.
+        # 입력 토큰 하나(특징 차원 128)에서 쿼리·키·값을 한 번에 계산한다.
         self.to_qkv = nn.Linear(DIM, 3 * DIM)
         self.to_out = nn.Linear(DIM, DIM)
 
     def forward(self, x):
         batch, tokens, _ = x.shape
 
-        # [B,N,3D] → [B,N,3,H,d_head] → 축 재정렬 후 Q,K,V 각각 [B,H,N,d_head].
+        # [B,N,3D] → [B,N,3,H,d_head] → 축 순서를 바꾼 뒤 쿼리·키·값 각각 [B,H,N,d_head].
         qkv = self.to_qkv(x)
         qkv = qkv.reshape(batch, tokens, 3, HEADS, HEAD_DIM)
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(0)
@@ -71,7 +71,7 @@ class EncoderBlock(nn.Module):
         )
 
     def forward(self, x):
-        # Pre-LN: LN → Attention → residual, LN → MLP → residual.
+        # 사전 정규화: 층 정규화 → 어텐션 → 잔차 연결, 이어서 정규화 → 다층 퍼셉트론 → 잔차 연결.
         attended, weights = self.attention(self.norm1(x))
         x = x + attended
         x = x + self.mlp(self.norm2(x))
@@ -92,7 +92,7 @@ class SmallViT(nn.Module):
 
     def forward(self, image):
         print("Image:", list(image.shape))
-        # [B,3,224,224] → [B,196,768]; 14×14개의 16×16 RGB patch.
+        # [B,3,224,224] → [B,196,768]; 16×16 크기의 색상 패치 14×14개다.
         patches = image.unfold(2, PATCH_SIZE, PATCH_SIZE).unfold(
             3, PATCH_SIZE, PATCH_SIZE
         )
@@ -111,7 +111,7 @@ class SmallViT(nn.Module):
 
         tokens, attention_weights = self.encoder(tokens)
         print("Transformer Encoder:", list(tokens.shape))
-        cls = self.norm(tokens[:, 0])  # 첫 번째 token인 CLS만 사용한다.
+        cls = self.norm(tokens[:, 0])  # 맨 앞의 CLS 토큰만 사용한다.
         print("CLS representation:", list(cls.shape))
         logits = self.head(cls)
         print("Classification Head:", list(logits.shape))
@@ -119,11 +119,11 @@ class SmallViT(nn.Module):
 
 
 def save_visualizations(image_tensor, weights):
-    """원본 patch grid와 첫 head의 CLS→patch attention을 저장한다."""
+    """원본 이미지의 패치 격자와 첫 번째 헤드의 CLS→패치 어텐션을 저장한다."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     image = image_tensor[0].detach().cpu().permute(1, 2, 0).numpy()
 
-    # 원본 이미지 위에 14×14 patch 경계를 그려 분할 위치를 확인한다.
+    # 원본 이미지 위에 14×14개 패치의 경계를 그려 분할 위치를 확인한다.
     fig, ax = plt.subplots(figsize=(6, 6))
     ax.imshow(image)
     ax.set_xticks(range(0, IMAGE_SIZE + 1, PATCH_SIZE))
@@ -134,8 +134,8 @@ def save_visualizations(image_tensor, weights):
     fig.savefig(OUTPUT_DIR / "01_patch_grid.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
-    # Attention: [B,H,N,N]. 첫 head의 CLS query(index 0)가
-    # 이미지 patch key(index 1~196)를 얼마나 참조하는지 확인한다.
+    # 어텐션 형태는 [배치,헤드,토큰,토큰]이다. 첫 헤드의 CLS 쿼리(0번)가
+    # 이미지 패치의 키(1~196번)를 얼마나 참조하는지 확인한다.
     cls_row = weights[0, 0, 0].detach().cpu()
     grid = cls_row[1:].reshape(GRID_SIZE, GRID_SIZE)
     fig, axes = plt.subplots(1, 2, figsize=(10, 4), constrained_layout=True)
@@ -169,36 +169,36 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Device:", device)
 
-    # 가상 class: 0=Bird, 1=Ball, 2=Car. GT=Ball인 이미지를 직접 만든다.
+    # 가상 클래스: 0=새, 1=공, 2=자동차. 정답이 공인 이미지를 직접 만든다.
     image = Image.new("RGB", (IMAGE_SIZE, IMAGE_SIZE), "white")
     ImageDraw.Draw(image).ellipse((48, 48, 176, 176), fill="red")
     inputs = TF.to_tensor(image).unsqueeze(0).to(device)
     names = ["Bird", "Ball", "Car"]
     gt = torch.tensor([1], dtype=torch.long, device=device)
 
-    model = SmallViT().to(device).train()  # pretrained 가중치를 사용하지 않는다.
+    model = SmallViT().to(device).train()  # 사전학습 가중치를 사용하지 않는다.
     optimizer = torch.optim.SGD(model.parameters(), lr=0.01)
     loss_fn = nn.CrossEntropyLoss()
 
     optimizer.zero_grad()
-    logits, attention = model(inputs)  # Forward
+    logits, attention = model(inputs)  # 순전파
     save_visualizations(inputs, attention)
 
-    print("logits:", logits.detach().cpu().tolist())  # 확률이 아닌 raw score
-    probabilities = logits.detach().softmax(dim=-1)  # 출력 해석용
+    print("logits:", logits.detach().cpu().tolist())  # 확률이 아닌 원시 예측 점수다.
+    probabilities = logits.detach().softmax(dim=-1)  # 출력값을 확률로 해석하기 위한 계산이다.
     print("softmax:", probabilities.cpu().tolist())
     print("Prediction:", names[probabilities.argmax(dim=-1).item()])
     print("GT:", gt.item(), names[gt.item()])
 
-    loss = loss_fn(logits, gt)  # CrossEntropyLoss에는 softmax 이전 logits 입력
+    loss = loss_fn(logits, gt)  # 교차 엔트로피 손실에는 소프트맥스 적용 전 점수를 입력한다.
     print("CrossEntropyLoss:", loss.item())
 
     parameter = model.head.weight
     before = parameter.detach().clone()
-    loss.backward()  # gradient만 계산; 아직 weight는 변하지 않았다.
+    loss.backward()  # 기울기만 계산하며 이 시점에는 가중치가 바뀌지 않는다.
     print("head.weight gradient 일부:", parameter.grad[0, :5].detach().cpu().tolist())
     print("optimizer.step() 전 head.weight 일부:", before[0, :5].cpu().tolist())
-    optimizer.step()  # gradient를 사용해 실제 parameter를 업데이트한다.
+    optimizer.step()  # 계산한 기울기로 실제 모델 파라미터를 갱신한다.
     after = parameter.detach()
     print("optimizer.step() 후 head.weight 일부:", after[0, :5].cpu().tolist())
     print("head.weight 최대 변경량:", (after - before).abs().max().item())

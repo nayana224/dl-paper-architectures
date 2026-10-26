@@ -1,5 +1,5 @@
-"""U-Net (2015): Encoder/Decoder와 skip concat, pixel-level loss.
-원 논문은 valid(unpadded) 3x3 conv + crop; 여기서는 same padding과 bilinear upsample로 단순화.
+"""U-Net(2015): 인코더·디코더, 건너뛰기 연결의 결합, 픽셀 단위 손실을 확인한다.
+원 논문은 패딩 없는 3×3 합성곱과 자르기를 사용한다. 여기서는 동일 크기 패딩과 양선형 업샘플링으로 단순화했다.
 """
 import torch
 from torch import nn
@@ -30,7 +30,7 @@ class MiniUNet(nn.Module):
         b=self.bridge(F.max_pool2d(e2,2))
         print("Encoder, Bottleneck:",tuple(e1.shape),tuple(e2.shape),tuple(b.shape))
         up2=F.interpolate(b,size=e2.shape[-2:],mode="bilinear",align_corners=False)
-        cat2=torch.cat([up2,e2],dim=1)  # skip: encoder feature 채널 결합
+        cat2=torch.cat([up2,e2],dim=1)  # 건너뛰기 연결: 인코더 특징을 채널 방향으로 결합한다.
         print("Skip concat 2:",tuple(cat2.shape))
         d2=self.dec2(cat2)
         up1=F.interpolate(d2,size=e1.shape[-2:],mode="bilinear",align_corners=False)
@@ -53,7 +53,7 @@ def main():
     optimizer=torch.optim.Adam(model.parameters(),lr=1e-3)
     optimizer.zero_grad()
     logits=model(x)
-    # logits [B,Classes,H,W], GT [B,H,W]; 1 pixel당 class 분류.
+    # 예측 점수 [B,클래스,H,W], 정답 [B,H,W]: 각 픽셀의 클래스를 분류한다.
     loss=F.cross_entropy(logits,gt)
     before=model.head.weight.detach().clone()
     loss.backward()

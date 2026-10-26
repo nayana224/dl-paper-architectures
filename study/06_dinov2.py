@@ -1,7 +1,7 @@
-"""DINOv2: 사진 한 장에서 Pretrained Patch Feature를 추출·시각화하는 실습.
+"""DINOv2: 사진 한 장에서 사전학습된 패치 특징을 추출하고 시각화한다.
 
-DINOv2는 SAM처럼 Segmentation Mask를 직접 예측하지 않는다.
-PCA 색/유사도 지도는 learned feature를 관찰하기 위한 것이며 GT Mask가 아니다.
+DINOv2는 SAM과 달리 분할 마스크를 직접 예측하지 않는다.
+주성분 분석 색상과 유사도 지도는 학습된 특징을 관찰하기 위한 것으로 정답 마스크가 아니다.
 """
 import argparse
 from pathlib import Path
@@ -20,7 +20,7 @@ MODEL_ID = "facebook/dinov2-small"
 ROOT = Path(__file__).resolve().parents[1]
 SAMPLE = ROOT / "assets" / "dinov2_dog.jpg"
 OUTPUTS = ROOT / "outputs"
-# PyTorch Hub에서 제공하는 실제 강아지 사진. 최초 실행에만 다운로드한다.
+# PyTorch Hub의 강아지 예제 사진으로, 처음 실행할 때만 내려받는다.
 SAMPLE_URL = "https://raw.githubusercontent.com/pytorch/hub/master/images/dog.jpg"
 
 
@@ -69,7 +69,7 @@ def main():
     grid_h = pixels.shape[-2] // patch_size
     grid_w = pixels.shape[-1] // patch_size
     count = grid_h * grid_w
-    # dinov2-small은 Register Token이 없으며 CLS가 index 0이다.
+    # 이 모델에는 레지스터 토큰이 없으며 CLS 토큰은 0번 위치에 있다.
     if hidden.shape[1] != count + 1:
         raise RuntimeError("CLS + patch token 수가 예상과 다릅니다. 모델 구성 확인이 필요합니다.")
 
@@ -79,15 +79,15 @@ def main():
     print("Patch features:", list(patch_tokens.shape))
     print("Patch grid:", [grid_h, grid_w, hidden.shape[-1]])
 
-    # 공간적으로 배열한 Patch Feature [N,D]를 PCA로 3차원에 투영.
+    # 공간별 패치 특징 [개수,차원]을 주성분 분석으로 3차원에 투영한다.
     features = patch_tokens[0].float().cpu()
     centered = features - features.mean(dim=0, keepdim=True)
     _, _, vh = torch.linalg.svd(centered, full_matrices=False)
     pca = (centered @ vh[:3].T).numpy().reshape(grid_h, grid_w, 3)
     pca_rgb = np.stack([normalize01(pca[:, :, c]) for c in range(3)], axis=-1)
 
-    # 가운데 patch를 기준으로 코사인 유사도를 계산한다.
-    # 가운데 patch가 물체가 아닌 경우 --image와 함께 결과를 다시 확인해야 한다.
+    # 가운데 패치를 기준으로 코사인 유사도를 계산한다.
+    # 가운데 패치가 물체가 아니라면 다른 사진을 지정해 결과를 확인한다.
     unit = torch.nn.functional.normalize(features, dim=-1)
     center_index = (grid_h // 2) * grid_w + grid_w // 2
     similarity = (unit @ unit[center_index]).numpy().reshape(grid_h, grid_w)
@@ -95,8 +95,8 @@ def main():
     print("Cosine similarity range:", float(similarity.min()), float(similarity.max()))
 
     OUTPUTS.mkdir(parents=True, exist_ok=True)
-    # Processor가 실제 모델에 제공한 정규화/크롭 이미지를 원본 사진 대신 참고용으로 그리지 않는다.
-    # PCA와 유사도 맵은 processor가 만든 grid이며 원본 사진의 비율과 달라질 수 있다.
+    # 전처리기가 사용한 정규화·잘라낸 이미지 대신 원본 사진을 참고용으로 표시한다.
+    # 주성분 분석과 유사도 지도는 전처리된 격자를 따르므로 원본 사진과 비율이 다를 수 있다.
     fig, axes = plt.subplots(1, 3, figsize=(13, 4), constrained_layout=True)
     axes[0].imshow(image)
     axes[0].set_title("Input photo")
