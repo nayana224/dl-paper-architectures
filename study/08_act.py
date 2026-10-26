@@ -1,6 +1,6 @@
 """ACT Figure 4: CVAE → multi-view ResNet18 → Transformer → action chunk.
 
-한 파일에서 training, inference(z=0), L1+KL 및 temporal ensembling을 확인한다.
+논문 기준: 4 RGB cameras (480x640), joints/actions 14 DOF, chunk 100, hidden 512.\n한 파일에서 training, inference(z=0), L1+KL 및 temporal ensembling을 확인한다.
 합성 입력/무작위 가중치이며 실제 ALOHA 정책을 재현하지 않는다.
 """
 import argparse
@@ -104,7 +104,7 @@ class MultiViewResNet(nn.Module):
 
 class ACTPolicy(nn.Module):
     """ACT policy with fixed action-query positions."""
-    def __init__(self, dof=14, cameras=4, chunk=8, hidden=512,
+    def __init__(self, dof=14, cameras=4, chunk=100, hidden=512,
                  latent=32, heads=8, encoder_layers=4, decoder_layers=7):
         super().__init__()
         self.dof, self.cameras, self.chunk, self.latent = dof, cameras, chunk, latent
@@ -187,30 +187,35 @@ def temporal_ensemble(chunks, now, decay=0.01):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--image-size", type=int, default=64)
-    parser.add_argument("--chunk-size", type=int, default=8)
-    parser.add_argument("--hidden", type=int, default=128,
-                        help="Use 512 to approach Figure 4 representation width")
-    parser.add_argument("--layers", type=int, default=2,
-                        help="Use 4 for encoder depth; decoder remains 7")
-    parser.add_argument("--decoder-layers", type=int, default=2,
-                        help="Use 7 for Figure 4 decoder depth")
+    # Figure 4 dimensions. Use smaller CLI overrides only for low-memory smoke tests.
+    parser.add_argument("--image-height", type=int, default=480)
+    parser.add_argument("--image-width", type=int, default=640)
+    parser.add_argument("--chunk-size", type=int, default=100)
+    parser.add_argument("--hidden", type=int, default=512)
+    parser.add_argument("--layers", type=int, default=4)
+    parser.add_argument("--decoder-layers", type=int, default=7)
     parser.add_argument("--beta", type=float, default=0.01)
     parser.add_argument("--train-step", action="store_true")
     args = parser.parse_args()
-    if args.image_size < 32 or args.chunk_size < 1 or args.hidden % 8:
-        parser.error("image-size >= 32, chunk-size >= 1, hidden divisible by 8")
+    if (args.image_height < 32 or args.image_width < 32 or args.chunk_size < 2
+            or args.hidden % 8 or args.layers < 1 or args.decoder_layers < 1):
+        parser.error("height/width >= 32, chunk-size >= 2, hidden multiple of 8, layers >= 1")
 
     torch.manual_seed(42)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = ACTPolicy(chunk=args.chunk_size, hidden=args.hidden,
                       encoder_layers=args.layers, decoder_layers=args.decoder_layers).to(device)
     # Batch=1 is intentional: large models are memory heavy on laptops.
-    images = torch.randn(1, 4, 3, args.image_size, args.image_size, device=device)
+    images = torch.randn(1, 4, 3, args.image_height, args.image_width, device=device)
     joints = torch.randn(1, 14, device=device) * 0.1
     gt = joints.unsqueeze(1) + torch.linspace(
         0.0, 0.2, args.chunk_size, device=device)[None, :, None]
     print(f"Device: {device}; 4 synthetic cameras, 14 control axes")
+    shape("input RGB images [B,4,3,H,W]", images)
+    shape("input joints [B,14]", joints)
+    shape("GT action chunk [B,K,14]", gt)
+    if args.image_height >= 480 and args.image_width >= 640:
+        print("NOTE: Full-size attention (1202 visual/joint/z tokens) is memory-intensive.")
     model.train()
     training = model(images, joints, gt_actions=gt, trace=True)
     total, recon, kl = act_loss(training["actions"], gt,
