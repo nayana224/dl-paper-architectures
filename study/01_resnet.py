@@ -1,4 +1,7 @@
-"""ResNet (2015): H(x)=F(x)+shortcut, Forward/Loss/Backward 학습용 축소판."""
+"""ResNet: residual add → classification loss → one optimizer step.
+
+학습용 소형 모델. 출력 수치는 무작위 초기화 상태의 1-step 결과다.
+"""
 import torch
 from torch import nn
 from PIL import Image, ImageDraw
@@ -16,7 +19,8 @@ class ResidualBlock(nn.Module):
                          nn.Sequential(nn.Conv2d(cin, cout, 1, stride, bias=False),
                                        nn.BatchNorm2d(cout)))
     def forward(self, x):
-        f, s = self.f(x), self.shortcut(x)
+        f = self.f(x)
+        s = self.shortcut(x)
         print("F(x), shortcut:", tuple(f.shape), tuple(s.shape))
         return torch.relu(f + s)  # ResNet v1: Add 이후 ReLU
 

@@ -12,7 +12,8 @@ class ConvPair(nn.Module):
         super().__init__()
         self.layers = nn.Sequential(nn.Conv2d(a,b,3,padding=1),nn.ReLU(),
                                     nn.Conv2d(b,b,3,padding=1),nn.ReLU())
-    def forward(self,x): return self.layers(x)
+    def forward(self, x):
+        return self.layers(x)
 
 class MiniUNet(nn.Module):
     def __init__(self):
@@ -49,15 +50,15 @@ def main():
     x=TF.to_tensor(image).unsqueeze(0).to(device)
     gt=torch.tensor(list(mask.getdata()),dtype=torch.long,device=device).reshape(1,64,64)
     model=MiniUNet().to(device)
-    opt=torch.optim.Adam(model.parameters(),lr=1e-3)
-    opt.zero_grad()
+    optimizer=torch.optim.Adam(model.parameters(),lr=1e-3)
+    optimizer.zero_grad()
     logits=model(x)
     # logits [B,Classes,H,W], GT [B,H,W]; 1 pixel당 class 분류.
     loss=F.cross_entropy(logits,gt)
     before=model.head.weight.detach().clone()
     loss.backward()
     print("GT:",tuple(gt.shape),"Loss:",loss.item(),"Grad norm:",model.head.weight.grad.norm().item())
-    opt.step()
+    optimizer.step()
     print("Head max weight update:",(model.head.weight-before).abs().max().item())
     print("교육용 1 step이며 의미 있는 segmentation 성능을 나타내지 않습니다.")
 

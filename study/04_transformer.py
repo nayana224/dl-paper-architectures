@@ -10,14 +10,17 @@ class MultiHeadAttention(nn.Module):
     def __init__(self,d=32,heads=4):
         super().__init__()
         self.heads,self.head_dim=heads,d//heads
-        self.q,self.k,self.v,self.out=(nn.Linear(d,d) for _ in range(4))
+        self.q = nn.Linear(d, d)
+        self.k = nn.Linear(d, d)
+        self.v = nn.Linear(d, d)
+        self.out = nn.Linear(d, d)
     def forward(self,query,key_value,causal=False,name="Attention"):
         b,n,d=query.shape
         m=key_value.shape[1]
         q=self.q(query).reshape(b,n,self.heads,self.head_dim).transpose(1,2)
         k=self.k(key_value).reshape(b,m,self.heads,self.head_dim).transpose(1,2)
         v=self.v(key_value).reshape(b,m,self.heads,self.head_dim).transpose(1,2)
-        scores=(q@k.transpose(-2,-1))/math.sqrt(self.head_dim)
+        scores = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_dim)
         if causal:  # 미래 token Key는 볼 수 없도록 -inf 처리.
             mask=torch.triu(torch.ones(n,m,device=scores.device,dtype=torch.bool),1)
             scores=scores.masked_fill(mask,float("-inf"))
@@ -82,15 +85,15 @@ def main():
     gt=target[:,1:]          # 한 칸 오른쪽으로 이동한 Next-token GT
     print("Source:",src.tolist(),"Decoder input:",tgt_input.tolist(),"GT:",gt.tolist())
     model=MiniTransformer().to(device)
-    opt=torch.optim.Adam(model.parameters(),lr=1e-3)
-    opt.zero_grad()
+    optimizer=torch.optim.Adam(model.parameters(),lr=1e-3)
+    optimizer.zero_grad()
     logits=model(src,tgt_input)
     loss=F.cross_entropy(logits.reshape(-1,20),gt.reshape(-1))
     before=model.head.weight.detach().clone()
     loss.backward()
     print("Next-token Loss:",loss.item())
     print("Cross-attention gradient norm:",model.decoder.cross_attn.q.weight.grad.norm().item())
-    opt.step()
+    optimizer.step()
     print("Head max update:",(model.head.weight-before).abs().max().item())
     print("교육용 1-step 학습: 실제 번역 품질을 보여주지 않습니다.")
 

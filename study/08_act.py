@@ -1,13 +1,9 @@
-"""ACT Figure 4 architecture deep dive (educational PyTorch implementation).
+"""ACT Figure 4: CVAE → multi-view ResNet18 → Transformer → action chunk.
 
-Run: python study/08_act.py --image-size 64 --chunk-size 8
-No robot hardware/dataset; random tensors demonstrate shape, gradient and inference.
-Differences from published ALOHA training: torchvision ResNet18 standard feature width,
-small input resolution, standard PyTorch Transformer blocks, synthetic observations,
-and a simplified training loop. This is NOT a released ACT checkpoint.
+한 파일에서 training, inference(z=0), L1+KL 및 temporal ensembling을 확인한다.
+합성 입력/무작위 가중치이며 실제 ALOHA 정책을 재현하지 않는다.
 """
 import argparse
-import copy
 import math
 
 import torch
@@ -18,7 +14,6 @@ from torchvision.models import resnet18
 
 def shape(name, tensor):
     print(f"{name:34s} {tuple(tensor.shape)}")
-    return tensor
 
 
 def sinusoid(length, width, device):
@@ -34,20 +29,15 @@ def sinusoid(length, width, device):
     return result
 
 
-class Position2D(nn.Module):
-    """Learn-free 2D sinusoidal embedding for flattened [H,W] visual tokens."""
-    def __init__(self, hidden):
-        super().__init__()
-        assert hidden % 4 == 0, "hidden must be divisible by 4"
-        self.hidden = hidden
-
-    def forward(self, h, w, device):
-        yy = sinusoid(h, self.hidden // 2, device)
-        xx = sinusoid(w, self.hidden // 2, device)
-        return torch.cat([
-            yy[:, None, :].expand(h, w, -1),
-            xx[None, :, :].expand(h, w, -1)
-        ], dim=-1).reshape(h * w, self.hidden)
+def position_2d(h, w, hidden, device):
+    """2D sinusoidal positions for a flattened H×W feature map."""
+    assert hidden % 4 == 0
+    yy = sinusoid(h, hidden // 2, device)
+    xx = sinusoid(w, hidden // 2, device)
+    return torch.cat((
+        yy[:, None, :].expand(h, w, -1),
+        xx[None, :, :].expand(h, w, -1),
+    ), dim=-1).reshape(h * w, hidden)
 
 
 class ActionLatentEncoder(nn.Module):
@@ -95,7 +85,6 @@ class MultiViewResNet(nn.Module):
         # Keep conv feature map, not global pooling or 1000-class classifier.
         self.features = nn.Sequential(*list(backbone.children())[:-2])
         self.project = nn.Conv2d(512, hidden, 1)
-        self.positions = Position2D(hidden)
 
     def forward(self, images, trace=False):
         b, cams, rgb, h, w = images.shape
@@ -104,7 +93,7 @@ class MultiViewResNet(nn.Module):
         feat = self.project(self.features(x))
         _, d, fh, fw = feat.shape
         tokens = feat.flatten(2).transpose(1, 2)
-        tokens = tokens + self.positions(fh, fw, feat.device).unsqueeze(0)
+        tokens = tokens + position_2d(fh, fw, d, feat.device).unsqueeze(0)
         tokens = tokens.reshape(b, cams * fh * fw, d)
         if trace:
             shape("images [B,C,3,H,W]", images)
@@ -114,7 +103,7 @@ class MultiViewResNet(nn.Module):
 
 
 class ACTPolicy(nn.Module):
-    """ACT-inspired conditional sequence prediction with learned query positions."""
+    """ACT policy with fixed action-query positions."""
     def __init__(self, dof=14, cameras=4, chunk=8, hidden=512,
                  latent=32, heads=8, encoder_layers=4, decoder_layers=7):
         super().__init__()

@@ -81,15 +81,14 @@ def main():
 
     # 공간적으로 배열한 Patch Feature [N,D]를 PCA로 3차원에 투영.
     features = patch_tokens[0].float().cpu()
-    features = features - features.mean(dim=0, keepdim=True)
-    _, _, vh = torch.linalg.svd(features, full_matrices=False)
-    pca = (features @ vh[:3].T).numpy().reshape(grid_h, grid_w, 3)
+    centered = features - features.mean(dim=0, keepdim=True)
+    _, _, vh = torch.linalg.svd(centered, full_matrices=False)
+    pca = (centered @ vh[:3].T).numpy().reshape(grid_h, grid_w, 3)
     pca_rgb = np.stack([normalize01(pca[:, :, c]) for c in range(3)], axis=-1)
 
     # 가운데 patch를 기준으로 코사인 유사도를 계산한다.
     # 가운데 patch가 물체가 아닌 경우 --image와 함께 결과를 다시 확인해야 한다.
-    raw = patch_tokens[0].float().cpu()
-    unit = torch.nn.functional.normalize(raw, dim=-1)
+    unit = torch.nn.functional.normalize(features, dim=-1)
     center_index = (grid_h // 2) * grid_w + grid_w // 2
     similarity = (unit @ unit[center_index]).numpy().reshape(grid_h, grid_w)
     print("Center patch index:", center_index)

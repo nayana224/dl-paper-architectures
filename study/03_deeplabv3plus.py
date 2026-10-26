@@ -17,8 +17,8 @@ class ASPP(nn.Module):
               for r in (1,2,3)]])
         self.global_branch=nn.Sequential(nn.AdaptiveAvgPool2d(1),nn.Conv2d(32,8,1),nn.ReLU())
         self.project=nn.Conv2d(40,32,1)
-    def forward(self,x):
-        ys=[m(x) for m in self.branches]
+    def forward(self, x):
+        ys = [branch(x) for branch in self.branches]
         g=self.global_branch(x)
         ys.append(F.interpolate(g,size=x.shape[-2:],mode="nearest"))
         print("ASPP branches:",[tuple(y.shape) for y in ys])
@@ -58,15 +58,15 @@ def main():
     x=TF.to_tensor(image).unsqueeze(0).to(device)
     gt=torch.tensor(list(mask.getdata()),dtype=torch.long,device=device).reshape(1,64,64)
     model=MiniDeepLabV3Plus().to(device)
-    opt=torch.optim.Adam(model.parameters(),lr=1e-3)
-    opt.zero_grad()
+    optimizer=torch.optim.Adam(model.parameters(),lr=1e-3)
+    optimizer.zero_grad()
     logits=model(x)
     loss=F.cross_entropy(logits,gt)
     before=model.decoder[-1].weight.detach().clone()
     loss.backward()
     print("GT:",tuple(gt.shape),"Loss:",loss.item())
     print("ASPP grad norm:",model.aspp.branches[1][0].weight.grad.norm().item())
-    opt.step()
+    optimizer.step()
     print("Head max update:",(model.decoder[-1].weight-before).abs().max().item())
 
 if __name__=="__main__":

@@ -1,9 +1,7 @@
-"""작은 ViT의 Forward → Attention(Q/K/V) → Loss → Backward → Weight Update를 1장으로 실습한다.
+"""ViT: patchify → CLS → self-attention → classification → one update.
 
-논문과의 관계:
-- Patch Embedding, CLS, Position Embedding, Pre-LN Encoder, Classification Head를 구현한다.
-- Self-Attention은 nn.MultiheadAttention 대신 Q/K/V 연산을 직접 보여준다.
-- random initialization + 이미지 한 장 + 1 step만 수행하므로 분류 성능 실험이 아니다.
+Q/K/V를 직접 구현하고 첫 head의 CLS attention을 시각화한다.
+무작위 가중치와 한 장의 합성 이미지를 사용한다.
 """
 
 from pathlib import Path
@@ -43,12 +41,9 @@ class MultiHeadAttention(nn.Module):
         qkv = qkv.reshape(batch, tokens, 3, HEADS, HEAD_DIM)
         q, k, v = qkv.permute(2, 0, 3, 1, 4).unbind(0)
 
-        # 각 Query와 모든 Key의 내적을 sqrt(d_head)로 나눠 Attention Score를 만든다.
         scores = (q @ k.transpose(-2, -1)) * (HEAD_DIM ** -0.5)
-        # key 축에 softmax: query 한 행의 attention 합은 1이 된다.
         weights = scores.softmax(dim=-1)
 
-        # Attention weight로 Value를 가중합한 뒤 Head들을 연결한다.
         context = weights @ v
         print("Attention @ V (head별):", list(context.shape))
         context = context.transpose(1, 2).reshape(batch, tokens, DIM)
